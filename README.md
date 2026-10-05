@@ -1,6 +1,6 @@
 # capcut-mcp-kit
 
-Let an AI assistant (Claude Code or any MCP client) assemble **CapCut desktop projects**: cut and
+Let any AI assistant that speaks MCP (Claude Code, Codex CLI, Cursor, …) assemble **CapCut desktop projects**: cut and
 sequence clips, add titles, subtitles, music, transitions, effects, animations, keyframes and color
 tweaks. The result is a regular CapCut project that you open, polish and export in CapCut.
 
@@ -102,7 +102,21 @@ Conventions:
 
 ## Other MCP clients
 
-Run the backend with `./start-server.sh`, then point your client at the stdio server:
+The kit is a standard local (stdio) MCP server, so any client that supports local MCP servers can
+use it: Claude Code, Claude Desktop, OpenAI Codex CLI, Cursor, and others. Run `./setup.sh` (it
+skips the Claude Code registration if `claude` is not installed), start the backend with
+`./start-server.sh`, then register the server in your client.
+
+**OpenAI Codex CLI** (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.capcut]
+command = "node"
+args = ["/absolute/path/to/capcut-mcp-kit/capcut-mcp-server/dist/index.js"]
+env = { CAPCUT_API_URL = "http://localhost:9001" }
+```
+
+**JSON-configured clients** (Claude Desktop, Cursor, …):
 
 ```json
 {
