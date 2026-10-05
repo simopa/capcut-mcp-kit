@@ -104,6 +104,11 @@ Conventions:
 - **Camera moves** start and end on the clip's own framing, so they only affect their range; with
   `capcut_add_video_without_pauses`, `punch_in_zoom: 1.12` alternates a tighter framing on every
   other piece to hide jump cuts.
+- **Saving** again under the same `project_name` replaces the project that draft saved before; the
+  old folder is moved to `~/Movies/CapCut MCP Backups` (set `CAPCUT_MCP_BACKUP_DIR` to change it),
+  never deleted, and backups are not pruned. A project the draft did not save is replaced only with
+  `overwrite: true`. Replacing is refused while CapCut is open, because CapCut writes the project it
+  holds back to disk when it closes; saving under a new name works with CapCut open.
 - **Color correction:** saturation/contrast/brightness keyframes with the same value at the clip's
   start and end act as a constant adjustment, still editable in CapCut.
 
@@ -114,6 +119,10 @@ Conventions:
   VectCutAPI does not render in CapCut 9.1. Use `capcut_add_image` with a PNG instead.
 - **Color filters** (CapCut's Filters panel) and in-app AI features (retouch, background removal,
   stabilization, auto captions) are not available.
+- **Drafts live in the backend's memory**: if the backend restarts, a draft not yet saved is lost and
+  its ID is no longer valid.
+- The backend listens on 127.0.0.1 only and refuses requests from web pages. VectCutAPI's web
+  preview is off; `CAPCUT_ENABLE_PREVIEW=1` turns it back on (it serves local files by path).
 - The draft format is CapCut's `capcut_legacy` profile. A future CapCut version could change it.
 
 ## Other MCP clients

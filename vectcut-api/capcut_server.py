@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; add_video records clip placement.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; add_video records clip placement; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted.
 # See NOTICE at the repository root.
 import requests
 import os
@@ -44,7 +44,25 @@ from web_preview import preview_bp, broadcast_draft_update
 from web_preview import reload_capcut_desktop  # falls back to a stub off Windows
 
 app = Flask(__name__)
-app.register_blueprint(preview_bp)
+# The web preview serves arbitrary local files by path; the MCP kit does not use it.
+if os.environ.get("CAPCUT_ENABLE_PREVIEW") == "1":
+    app.register_blueprint(preview_bp)
+
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+def _hostname(host):
+    if host.startswith("["):
+        return host[1:].split("]")[0]
+    return host.split(":")[0]
+
+@app.before_request
+def only_loopback_callers():
+    # Blocks DNS rebinding (foreign Host) and requests from web pages (foreign Origin)
+    if _hostname(request.host or "").lower() not in LOOPBACK_HOSTS:
+        return jsonify({"success": False, "error": "Forbidden host"}), 403
+    origin = request.headers.get("Origin")
+    if origin and _hostname(origin.split("://", 1)[-1]).lower() not in LOOPBACK_HOSTS:
+        return jsonify({"success": False, "error": "Forbidden origin"}), 403
 
  
 @app.route('/add_video', methods=['POST'])
@@ -806,6 +824,7 @@ def save_draft():
     project_name = data.get('project_name')
     auto_deploy = data.get('auto_deploy', True)
     auto_reload = data.get('auto_reload', False)
+    overwrite = data.get('overwrite') is True
     
     result = {
         "success": False,
@@ -821,8 +840,12 @@ def save_draft():
     
     try:
         # Call save_draft_impl method
-        draft_result = save_draft_impl(draft_id, draft_folder, project_name=project_name, auto_deploy=auto_deploy)
-        
+        draft_result = save_draft_impl(draft_id, draft_folder, project_name=project_name, auto_deploy=auto_deploy, overwrite=overwrite)
+        if not draft_result.get("success"):
+            result["error"] = draft_result.get("error") or "Failed to save draft"
+            return jsonify(result)
+        draft_result.pop("success")
+
         # Broadcast live update to Web Preview Player
         broadcast_draft_update(draft_id=draft_id, action="save", project_name=project_name or draft_id)
 

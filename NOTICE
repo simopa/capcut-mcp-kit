@@ -29,6 +29,15 @@ vectcut-api/
   - save_draft_impl.py: media under ~/Movies is referenced in place (CapCut is
     sandboxed and can read that folder); a file used by many clips is copied once.
   - downloader.py: local files are cloned copy-on-write on macOS (APFS).
+  - save_draft_impl.py, capcut_server.py: safe saving. project names are
+    validated (no '.', '..' or separators), the draft is built in a staging folder
+    and swapped in, an existing folder is moved to backups instead of deleted,
+    projects not saved from the same draft need overwrite, replacing a project is
+    refused while CapCut is open, and failed copies are reported as failures.
+  - capcut_server.py: the web preview routes are off unless CAPCUT_ENABLE_PREVIEW=1;
+    requests with a non-loopback Host or Origin are refused.
+  - tests/test_save_draft_local_paths.py: never writes into the real CapCut folder;
+    tests/test_save_draft_safety.py (new).
   - pyJianYingDraft/script_file.py: import_srt crashed when no font was given.
   - The upstream mcp-server/ folder (a copy of the project below) is not included.
 
@@ -51,6 +60,8 @@ capcut-mcp-server/
   - Content-aware tools (tools/media.ts): capcut_transcribe, capcut_detect_pauses,
     capcut_add_video_without_pauses (with alternating punch-in), capcut_add_auto_subtitles,
     capcut_add_camera_move.
+  - Errors are returned with isError; capcut_save_draft takes overwrite and reports
+    where replaced projects were moved.
 ------------------------------------------------------------------------
 
 Everything else in this repository (setup.sh, start-server.sh, README.md, docs/)

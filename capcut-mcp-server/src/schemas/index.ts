@@ -384,7 +384,10 @@ export const SaveDraftSchema = z.object({
     .describe('The ID of the draft to save'),
   project_name: z.string()
     .optional()
-    .describe('Name shown in the CapCut projects list (defaults to the draft ID)'),
+    .describe('Name shown in the CapCut projects list (defaults to the draft ID); cannot start with "." or contain / \\ :'),
+  overwrite: z.boolean()
+    .default(false)
+    .describe('Replace an existing project that was not saved from this draft (it is moved to backups)'),
   response_format: ResponseFormatSchema
 }).strict();
 

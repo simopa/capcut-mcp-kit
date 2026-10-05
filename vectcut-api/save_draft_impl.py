@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: save straight into the local CapCut drafts folder (macOS/Windows), rename the folder to project_name, fix draft_meta_info.json; media under ~/Movies referenced in place; each file copied once even when used by many clips.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: save straight into the local CapCut drafts folder (macOS/Windows), rename the folder to project_name, fix draft_meta_info.json; media under ~/Movies referenced in place; each file copied once even when used by many clips; validated folder names, staging + swap, existing folders moved to backups instead of deleted, failures reported.
 # See NOTICE at the repository root.
 import os
 import pyJianYingDraft as draft
@@ -56,23 +56,26 @@ def find_capcut_projects_dir():
             return p
     return None
 
-def fix_draft_meta(draft_dir, display_name, duration):
-    """The template's draft_meta_info.json carries stale paths/ids; point it at this draft so CapCut lists it."""
-    meta_path = os.path.join(draft_dir, "draft_meta_info.json")
+def fix_draft_meta(meta_dir, draft_dir, display_name, duration, previous=None):
+    """The template's draft_meta_info.json carries stale paths/ids; point it at draft_dir so CapCut
+    lists it. meta_dir is where the file is now (a staging folder until commit). When replacing a
+    project this draft saved before, `previous` (its old meta) keeps the CapCut id and creation date."""
+    meta_path = os.path.join(meta_dir, "draft_meta_info.json")
     if not os.path.exists(meta_path):
         return
     with open(meta_path, "r", encoding="utf-8") as f:
         meta = json.load(f)
+    previous = previous or {}
     now = int(time.time() * 1_000_000)
     meta.update(
         draft_fold_path=draft_dir,
         draft_root_path=os.path.dirname(draft_dir),
         draft_name=display_name,
-        draft_id=str(uuid.uuid4()).upper(),
+        draft_id=previous.get("draft_id") or str(uuid.uuid4()).upper(),
         draft_cover="",
         cloud_draft_cover=False,
         cloud_draft_sync=False,
-        tm_draft_create=now,
+        tm_draft_create=previous.get("tm_draft_create") or now,
         tm_draft_modified=now,
         tm_duration=duration,
     )
@@ -91,139 +94,184 @@ def use_in_place(material, source) -> bool:
     material.replace_path = local
     return True
 
-def save_draft_background(draft_id, draft_folder, task_id, project_name=None, auto_deploy=True):
-    """Background save draft to OSS and auto-deploy to CapCut desktop"""
+# Written into every folder this kit saves, so a later save of the same draft can tell its own
+# project apart from one it must not replace.
+KIT_MARKER = ".capcut_mcp_kit.json"
+
+class SaveDraftError(Exception):
+    """A save that was refused or failed; nothing was replaced."""
+
+def validate_folder_name(name, what="project_name"):
+    """A name used as one folder inside the drafts directory: no separators, '.' or '..'."""
+    if not isinstance(name, str) or not name.strip():
+        raise SaveDraftError(f"{what} must be a non-empty string")
+    name = name.strip()
+    if name.startswith(".") or any(c in name for c in '/\\:') or any(ord(c) < 32 for c in name):
+        raise SaveDraftError(f"Invalid {what} {name!r}: it cannot start with '.' or contain / \\ : or control characters")
+    if len(name.encode("utf-8")) > 200:
+        raise SaveDraftError(f"{what} is too long")
+    return name
+
+def child_dir(parent, name):
+    """parent/name, refused unless it resolves to a direct child of parent."""
+    path = os.path.join(parent, name)
+    if os.path.dirname(os.path.realpath(path)) != os.path.realpath(parent):
+        raise SaveDraftError(f"{path} resolves outside {parent}")
+    return path
+
+def capcut_is_running():
+    """True/False, or None when it cannot be determined."""
     try:
+        if os.name == 'nt':
+            out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq CapCut.exe", "/NH"],
+                                 capture_output=True, text=True, timeout=5).stdout
+            return "CapCut.exe" in out
+        return subprocess.run(["pgrep", "-x", "CapCut"], capture_output=True, timeout=5).returncode == 0
+    except Exception:
+        return None
+
+def backup_root():
+    configured = os.environ.get("CAPCUT_MCP_BACKUP_DIR")
+    if configured:
+        return os.path.expanduser(configured)
+    if os.name == 'nt':
+        return os.path.expandvars(r"%LOCALAPPDATA%\CapCut MCP Backups")
+    return os.path.expanduser("~/Movies/CapCut MCP Backups")
+
+def move_to_backup(path):
+    """Move a folder out of the way instead of deleting it. Returns where it went."""
+    root = backup_root()
+    os.makedirs(root, exist_ok=True)
+    base = f"{os.path.basename(path)} {time.strftime('%Y%m%d-%H%M%S')}"
+    dest, n = os.path.join(root, base), 1
+    while os.path.lexists(dest):
+        n += 1
+        dest = os.path.join(root, f"{base}-{n}")
+    shutil.move(path, dest)
+    logger.info(f"Moved {path} to backup {dest}")
+    return dest
+
+def read_kit_marker(folder):
+    try:
+        with open(os.path.join(folder, KIT_MARKER), "r", encoding="utf-8") as f:
+            return json.load(f).get("draft_id")
+    except (OSError, ValueError, AttributeError):
+        return None
+
+def read_meta(folder):
+    try:
+        with open(os.path.join(folder, "draft_meta_info.json"), "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+def check_replace(target, draft_id, overwrite, in_capcut):
+    """Refuse to replace a folder this draft did not save (unless overwrite), and any CapCut
+    project while CapCut is open: it keeps the project in memory and writes it back on close."""
+    if not os.path.lexists(target):
+        return
+    name = os.path.basename(target)
+    if os.path.islink(target) or not os.path.isdir(target):
+        raise SaveDraftError(f"'{name}' exists and is not a project folder")
+    if read_kit_marker(target) != draft_id and not overwrite:
+        raise SaveDraftError(
+            f"A project named '{name}' already exists and was not saved from this draft. "
+            f"Choose another project_name, or pass overwrite=true to replace it "
+            f"(the old folder is moved to {backup_root()}, not deleted).")
+    if in_capcut and capcut_is_running():
+        raise SaveDraftError(
+            f"CapCut is open: quit CapCut before replacing '{name}', otherwise it writes its own "
+            f"copy back over the saved project when it closes. Saving under a new project_name works while it is open.")
+
+def commit_dir(stage_dir, target):
+    """Swap a fully written staging folder into place, moving any existing target to backups."""
+    backup = move_to_backup(target) if os.path.lexists(target) else None
+    try:
+        os.rename(stage_dir, target)
+    except Exception:
+        if backup:
+            shutil.move(backup, target)
+        raise
+    return backup
+
+def write_kit_marker(folder, draft_id):
+    with open(os.path.join(folder, KIT_MARKER), "w", encoding="utf-8") as f:
+        json.dump({"draft_id": draft_id}, f)
+
+def save_draft_background(draft_id, draft_folder, task_id, project_name=None, auto_deploy=True, overwrite=False):
+    """Save a draft: write it into a staging folder next to its destination, check every asset
+    arrived, then swap it in. An existing folder is moved to backups, never deleted.
+    Returns {"draft_url": path, "backups": [...]}; raises on failure with nothing replaced."""
+    stages = []
+    try:
+        validate_folder_name(draft_id, "draft_id")
+        if project_name:
+            project_name = validate_folder_name(project_name)
+        if draft_id not in DRAFT_CACHE:
+            raise SaveDraftError(f"Draft {draft_id} not found (drafts live in memory and are lost when "
+                                 f"the backend restarts): create a new draft.")
+        script = DRAFT_CACHE[draft_id]
+
+        update_task_fields(task_id, status="processing", message="Preparing draft files", progress=0)
+
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        capcut_projects_dir = find_capcut_projects_dir()
         # Write straight into CapCut's drafts directory so asset paths stay valid after deploy
         if not draft_folder and auto_deploy and not IS_UPLOAD_DRAFT:
-            draft_folder = find_capcut_projects_dir()
-
-        # Get draft information from global cache
-        if draft_id not in DRAFT_CACHE:
-            task_status = {
-                "status": "failed",
-                "message": f"Draft {draft_id} does not exist in cache",
-                "progress": 0,
-                "completed_files": 0,
-                "total_files": 0,
-                "draft_url": ""
-            }
-            update_tasks_cache(task_id, task_status)  # Use new cache management function
-            logger.error(f"Draft {draft_id} does not exist in cache, task {task_id} failed.")
-            return
-            
-        script = DRAFT_CACHE[draft_id]
-        logger.info(f"Successfully retrieved draft {draft_id} from cache.")
-        
-        # Update task status to processing
-        task_status = {
-            "status": "processing",
-            "message": "Preparing draft files",
-            "progress": 0,
-            "completed_files": 0,
-            "total_files": 0,
-            "draft_url": ""
-        }
-        update_tasks_cache(task_id, task_status)  # Use new cache management function
-        logger.info(f"Task {task_id} status updated to 'processing': Preparing draft files.")
-        
-        logger.info(f"Starting to save draft: {draft_id}")
-        # Save draft
-        current_dir = os.path.dirname(os.path.abspath(__file__))
+            draft_folder = capcut_projects_dir
         output_base_dir = draft_folder or current_dir
-        draft_dir = os.path.join(output_base_dir, draft_id)
+        in_place = (not IS_UPLOAD_DRAFT and bool(capcut_projects_dir)
+                    and os.path.realpath(output_base_dir) == os.path.realpath(capcut_projects_dir))
+        # CapCut lists projects by folder name, so in place the folder is named after the project
+        final_name = (project_name or draft_id) if in_place else draft_id
+        draft_dir = child_dir(output_base_dir, final_name)
+        deploy_dir = None
+        if not in_place and capcut_projects_dir and (auto_deploy or project_name):
+            deploy_dir = child_dir(capcut_projects_dir, project_name or draft_id)
 
-        # Delete possibly existing draft_id folder in the target output location.
-        if os.path.exists(draft_dir):
-            logger.warning(f"Deleting existing draft folder: {draft_dir}")
-            shutil.rmtree(draft_dir)
+        # Refuse before writing anything
+        check_replace(draft_dir, draft_id, overwrite, in_capcut=in_place)
+        if deploy_dir:
+            check_replace(deploy_dir, draft_id, overwrite, in_capcut=True)
 
-        # Choose different template directory based on configuration
         draft_profile = get_draft_profile()
-        template_dir = draft_profile.template_dir
-        template_source_dir = os.path.join(current_dir, template_dir)
+        template_source_dir = os.path.join(current_dir, draft_profile.template_dir)
         if not os.path.exists(template_source_dir):
-            raise FileNotFoundError(f"Template draft {template_dir} does not exist")
-        shutil.copytree(template_source_dir, draft_dir)
-        
-        # Update task status
-        update_task_field(task_id, "message", "Updating media file metadata")
-        update_task_field(task_id, "progress", 5)
-        logger.info(f"Task {task_id} progress 5%: Updating media file metadata.")
-        
-        update_media_metadata(script, task_id)
-        
-        download_tasks = []
-        
-        audios = script.materials.audios
-        if audios:
-            for audio in audios:
-                remote_url = audio.remote_url
-                material_name = audio.material_name
-                # Use helper function to build path. This must match output_base_dir
-                # (which falls back to current_dir), since that's where the file is
-                # actually downloaded/copied to below, regardless of draft_folder.
-                audio.replace_path = build_asset_path(output_base_dir, draft_id, "audio", material_name)
-                if not remote_url:
-                    logger.warning(f"Audio file {material_name} has no remote_url, skipping download.")
-                    continue
-                if use_in_place(audio, remote_url):
-                    continue
-                
-                # Add audio download task
-                download_tasks.append({
-                    'type': 'audio',
-                    'func': download_file,
-                    'args': (remote_url, os.path.join(output_base_dir, f"{draft_id}/assets/audio/{material_name}")),
-                    'material': audio
-                })
-        
-        # Collect video and image download tasks
-        videos = script.materials.videos
-        if videos:
-            for video in videos:
-                remote_url = video.remote_url
-                material_name = video.material_name
-                
-                if video.material_type == 'photo':
-                    # Use helper function to build path. Must match output_base_dir,
-                    # since that's where the file is actually downloaded/copied to below.
-                    video.replace_path = build_asset_path(output_base_dir, draft_id, "image", material_name)
-                    if not remote_url:
-                        logger.warning(f"Image file {material_name} has no remote_url, skipping download.")
-                        continue
-                    if use_in_place(video, remote_url):
-                        continue
-                    
-                    # Add image download task
-                    download_tasks.append({
-                        'type': 'image',
-                        'func': download_file,
-                        'args': (remote_url, os.path.join(output_base_dir, f"{draft_id}/assets/image/{material_name}")),
-                        'material': video
-                    })
-                
-                elif video.material_type == 'video':
-                    # Use helper function to build path. Must match output_base_dir,
-                    # since that's where the file is actually downloaded/copied to below.
-                    video.replace_path = build_asset_path(output_base_dir, draft_id, "video", material_name)
-                    if not remote_url:
-                        logger.warning(f"Video file {material_name} has no remote_url, skipping download.")
-                        continue
-                    if use_in_place(video, remote_url):
-                        continue
-                    
-                    # Add video download task
-                    download_tasks.append({
-                        'type': 'video',
-                        'func': download_file,
-                        'args': (remote_url, os.path.join(output_base_dir, f"{draft_id}/assets/video/{material_name}")),
-                        'material': video
-                    })
+            raise FileNotFoundError(f"Template draft {draft_profile.template_dir} does not exist")
+        stage_dir = child_dir(output_base_dir, f".capcut-mcp-saving-{uuid.uuid4().hex[:8]}")
+        stages.append(stage_dir)
+        shutil.copytree(template_source_dir, stage_dir)
 
-        update_task_field(task_id, "message", f"Collected {len(download_tasks)} download tasks in total")
-        update_task_field(task_id, "progress", 10)
-        logger.info(f"Task {task_id} progress 10%: Collected {len(download_tasks)} download tasks in total.")
+        update_task_fields(task_id, message="Updating media file metadata", progress=5)
+        update_media_metadata(script, task_id)
+
+        # replace_path is where the asset will be once the staging folder is renamed to draft_dir;
+        # the file itself is copied into the staging folder.
+        download_tasks = []
+        missing = []
+        materials = [(audio, "audio") for audio in (script.materials.audios or [])]
+        for video in (script.materials.videos or []):
+            if video.material_type == 'photo':
+                materials.append((video, "image"))
+            elif video.material_type == 'video':
+                materials.append((video, "video"))
+        for material, asset_type in materials:
+            remote_url = material.remote_url
+            material_name = material.material_name
+            material.replace_path = build_asset_path(output_base_dir, final_name, asset_type, material_name)
+            if not remote_url:
+                missing.append(f"{material_name} (no source)")
+                continue
+            if use_in_place(material, remote_url):
+                continue
+            download_tasks.append({
+                'type': asset_type,
+                'func': download_file,
+                'args': (remote_url, os.path.join(stage_dir, "assets", asset_type, material_name)),
+                'material': material
+            })
+
+        update_task_fields(task_id, message=f"Collected {len(download_tasks)} download tasks in total", progress=10)
 
         # Several clips of the same file share one destination: copy/download it only once
         unique_tasks = {}
@@ -231,172 +279,106 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
             unique_tasks.setdefault(task['args'][1], task)
         download_tasks = list(unique_tasks.values())
 
-        # Execute all download tasks concurrently
-        downloaded_paths = []
         completed_files = 0
         if download_tasks:
             logger.info(f"Starting concurrent download of {len(download_tasks)} files...")
-            
-            # Use thread pool for concurrent downloads, maximum concurrency of 16
             with ThreadPoolExecutor(max_workers=16) as executor:
-                # Submit all download tasks
                 future_to_task = {
-                    executor.submit(task['func'], *task['args']): task 
+                    executor.submit(task['func'], *task['args']): task
                     for task in download_tasks
                 }
-                
-                # Wait for all tasks to complete
                 for future in as_completed(future_to_task):
                     task = future_to_task[future]
                     try:
-                        local_path = future.result()
-                        downloaded_paths.append(local_path)
-                        
-                        # Update task status - only update completed files count
-                        completed_files += 1
-                        update_task_field(task_id, "completed_files", completed_files)
-                        task_status = get_task_status(task_id)
-                        completed = task_status["completed_files"]
-                        total = len(download_tasks)
-                        update_task_field(task_id, "total_files", total)
-                        # Download part accounts for 60% of the total progress
-                        download_progress = 10 + int((completed / total) * 60)
-                        update_task_field(task_id, "progress", download_progress)
-                        update_task_field(task_id, "message", f"Downloaded {completed}/{total} files")
-                        
-                        logger.info(f"Task {task_id}: Successfully downloaded {task['type']} file, progress {download_progress}.")
+                        future.result()
                     except Exception as e:
                         logger.error(f"Task {task_id}: Download {task['type']} file failed: {str(e)}", exc_info=True)
-                        # Continue processing other files, don't interrupt the entire process
-            
-            logger.info(f"Task {task_id}: Concurrent download completed, downloaded {len(downloaded_paths)} files in total.")
-        
-        # Update task status - Start saving draft information
-        update_task_field(task_id, "progress", 70)
-        update_task_field(task_id, "message", "Saving draft information")
-        logger.info(f"Task {task_id} progress 70%: Saving draft information.")
-        
-        written_files = write_profile_content(draft_profile, draft_dir, script.dumps(draft_profile))
+                        missing.append(f"{task['material'].material_name} ({e})")
+                        continue
+                    completed_files += 1
+                    total = len(download_tasks)
+                    update_task_fields(task_id, completed_files=completed_files, total_files=total,
+                                       progress=10 + int((completed_files / total) * 60),
+                                       message=f"Downloaded {completed_files}/{total} files")
+        for task in download_tasks:
+            if not os.path.isfile(task['args'][1]):
+                name = task['material'].material_name
+                if not any(m.startswith(name) for m in missing):
+                    missing.append(f"{name} (not copied)")
+        if missing:
+            raise SaveDraftError("Draft not saved, some media could not be copied: " + "; ".join(missing))
+
+        update_task_fields(task_id, message="Saving draft information", progress=70)
+        written_files = write_profile_content(draft_profile, stage_dir, script.dumps(draft_profile))
         logger.info(f"Draft information has been saved to {[str(path) for path in written_files]}.")
+        write_kit_marker(stage_dir, draft_id)
+        if in_place:
+            previous = read_meta(draft_dir) if read_kit_marker(draft_dir) == draft_id else None
+            fix_draft_meta(stage_dir, draft_dir, project_name or draft_id, script.duration, previous)
+
+        backups = []
+        backup = commit_dir(stage_dir, draft_dir)
+        stages.remove(stage_dir)
+        if backup:
+            backups.append(backup)
+
+        if deploy_dir:
+            # Saved elsewhere: also place a copy in CapCut's drafts directory
+            deploy_stage = child_dir(capcut_projects_dir, f".capcut-mcp-saving-{uuid.uuid4().hex[:8]}")
+            stages.append(deploy_stage)
+            shutil.copytree(draft_dir, deploy_stage)
+            lock_f = os.path.join(deploy_stage, ".locked")
+            if os.path.exists(lock_f):
+                os.remove(lock_f)
+            previous = read_meta(deploy_dir) if read_kit_marker(deploy_dir) == draft_id else None
+            fix_draft_meta(deploy_stage, deploy_dir, project_name or draft_id, script.duration, previous)
+            backup = commit_dir(deploy_stage, deploy_dir)
+            stages.remove(deploy_stage)
+            if backup:
+                backups.append(backup)
+            logger.info(f"Auto-deployed draft to CapCut directory: {deploy_dir}")
 
         draft_url = ""
         # Only upload draft information when IS_UPLOAD_DRAFT is True
         if IS_UPLOAD_DRAFT:
-            # Update task status - Start compressing draft
-            update_task_field(task_id, "progress", 80)
-            update_task_field(task_id, "message", "Compressing draft files")
-            logger.info(f"Task {task_id} progress 80%: Compressing draft files.")
-            
-            # Compress the entire draft directory
+            update_task_fields(task_id, message="Compressing draft files", progress=80)
             zip_path = zip_draft(draft_id)
-            logger.info(f"Draft directory {os.path.join(current_dir, draft_id)} has been compressed to {zip_path}.")
-            
-            # Update task status - Start uploading to OSS
-            update_task_field(task_id, "progress", 90)
-            update_task_field(task_id, "message", "Uploading to cloud storage")
-            logger.info(f"Task {task_id} progress 90%: Uploading to cloud storage.")
-            
-            # Upload to OSS
+            update_task_fields(task_id, message="Uploading to cloud storage", progress=90)
             draft_url = upload_to_oss(zip_path)
             logger.info(f"Draft archive has been uploaded to OSS, URL: {draft_url}")
             update_task_field(task_id, "draft_url", draft_url)
-
             # Clean up temporary files
             if os.path.exists(os.path.join(current_dir, draft_id)):
                 shutil.rmtree(os.path.join(current_dir, draft_id))
-                logger.info(f"Cleaned up temporary draft folder: {os.path.join(current_dir, draft_id)}")
 
-    
-        # Update task status - Completed
-        update_task_field(task_id, "status", "completed")
-        update_task_field(task_id, "progress", 100)
-        update_task_field(task_id, "message", "Draft creation completed")
-        logger.info(f"Task {task_id} completed, draft URL: {draft_url}")
-
-        # Auto-deploy to CapCut Desktop projects directory
-        deployed_path = None
-        capcut_projects_dir = find_capcut_projects_dir()
-        if not IS_UPLOAD_DRAFT and capcut_projects_dir and os.path.dirname(draft_dir) == capcut_projects_dir:
-            # Already written in place. CapCut lists projects by folder name, so rename the
-            # folder to project_name and rewrite the absolute asset paths that point into it.
-            if project_name:
-                safe_name = "".join(c for c in project_name if c not in '/\\:').strip() or draft_id
-                new_dir = os.path.join(capcut_projects_dir, safe_name)
-                if new_dir != draft_dir:
-                    if os.path.exists(new_dir):
-                        shutil.rmtree(new_dir)
-                    os.rename(draft_dir, new_dir)
-                    for fname in os.listdir(new_dir):
-                        fpath = os.path.join(new_dir, fname)
-                        if fname.endswith(".json") and os.path.isfile(fpath):
-                            with open(fpath, "r", encoding="utf-8") as f:
-                                content = f.read()
-                            if draft_dir in content:
-                                with open(fpath, "w", encoding="utf-8") as f:
-                                    f.write(content.replace(draft_dir, new_dir))
-                    draft_dir = new_dir
-            fix_draft_meta(draft_dir, project_name or draft_id, script.duration)
-            logger.info(f"Draft saved directly in CapCut directory: {draft_dir}")
-            deployed_path = draft_dir
-        elif auto_deploy or project_name:
-            target_name = project_name or draft_id
-
-            if capcut_projects_dir:
-                try:
-                    dest_dir = os.path.join(capcut_projects_dir, target_name)
-                    if os.path.exists(dest_dir):
-                        shutil.rmtree(dest_dir)
-                    shutil.copytree(draft_dir, dest_dir)
-                    # Clear any stale .locked file in destination
-                    lock_f = os.path.join(dest_dir, ".locked")
-                    if os.path.exists(lock_f):
-                        os.remove(lock_f)
-                    logger.info(f"Auto-deployed draft to CapCut directory: {dest_dir}")
-                    deployed_path = dest_dir
-                except Exception as ex:
-                    logger.error(f"Failed to auto-deploy draft to CapCut: {str(ex)}")
-
-        return draft_url if IS_UPLOAD_DRAFT else (deployed_path or draft_dir)
+        update_task_fields(task_id, status="completed", progress=100, message="Draft creation completed")
+        logger.info(f"Task {task_id} completed: {deploy_dir or draft_dir}")
+        return {"draft_url": draft_url if IS_UPLOAD_DRAFT else (deploy_dir or draft_dir), "backups": backups}
 
     except Exception as e:
-        # Update task status - Failed
-        update_task_fields(task_id, 
-                          status="failed",
-                          message=f"Failed to save draft: {str(e)}")
+        for stage in stages:
+            # Only ever staging folders this call created
+            shutil.rmtree(stage, ignore_errors=True)
+        update_task_fields(task_id, status="failed", message=f"Failed to save draft: {str(e)}")
         logger.error(f"Saving draft {draft_id} task {task_id} failed: {str(e)}", exc_info=True)
-        return ""
+        raise
 
 def query_task_status(task_id: str):
     return get_task_status(task_id)
 
-def save_draft_impl(draft_id: str, draft_folder: str = None, project_name: str = None, auto_deploy: bool = True) -> Dict[str, str]:
-    """Start a background task to save the draft"""
-    logger.info(f"Received save draft request: draft_id={draft_id}, draft_folder={draft_folder}, project_name={project_name}, auto_deploy={auto_deploy}")
+def save_draft_impl(draft_id: str, draft_folder: str = None, project_name: str = None, auto_deploy: bool = True, overwrite: bool = False) -> Dict:
+    """Save the draft synchronously. Returns {"success": True, "draft_url", "backups"} or {"success": False, "error"}."""
+    logger.info(f"Received save draft request: draft_id={draft_id}, draft_folder={draft_folder}, project_name={project_name}, auto_deploy={auto_deploy}, overwrite={overwrite}")
     try:
-        # Generate a unique task ID
         task_id = draft_id
         create_task(task_id)
-        logger.info(f"Task {task_id} has been created.")
-        
-        # Changed to synchronous execution
-        return {
-            "success": True,
-            "draft_url": save_draft_background(draft_id, draft_folder, task_id, project_name=project_name, auto_deploy=auto_deploy)
-            }
-
-        # # Start a background thread to execute the task
-        # thread = threading.Thread(
-        #     target=save_draft_background,
-        #     args=(draft_id, draft_folder, task_id)
-        # )
-        # thread.start()
-        
+        result = save_draft_background(draft_id, draft_folder, task_id, project_name=project_name,
+                                       auto_deploy=auto_deploy, overwrite=overwrite)
+        return {"success": True, **result}
+    except SaveDraftError as e:
+        return {"success": False, "error": str(e)}
     except Exception as e:
-        logger.error(f"Failed to start save draft task {draft_id}: {str(e)}", exc_info=True)
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": f"Failed to save draft: {e}"}
 
 def update_media_metadata(script, task_id=None):
     """

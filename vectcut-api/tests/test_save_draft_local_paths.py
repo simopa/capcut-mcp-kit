@@ -1,3 +1,5 @@
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: the CapCut drafts folder lookup is stubbed so the tests never write into it.
+# See NOTICE at the repository root.
 import json
 import shutil
 from pathlib import Path
@@ -44,6 +46,8 @@ def test_save_draft_sets_replace_path_for_video_without_draft_folder(monkeypatch
     monkeypatch.setattr(save_draft_impl, "get_draft_profile", lambda: get_draft_profile("jianying_pro_10"))
     monkeypatch.setattr(save_draft_impl, "update_media_metadata", lambda script, task_id=None: None)
     monkeypatch.setattr(save_draft_impl, "IS_UPLOAD_DRAFT", False)
+    # Never touch the real CapCut drafts folder
+    monkeypatch.setattr(save_draft_impl, "find_capcut_projects_dir", lambda: None)
 
     try:
         save_draft_impl.save_draft_background(draft_id, None, draft_id)
@@ -91,6 +95,8 @@ def test_save_draft_sets_replace_path_for_audio_without_draft_folder(monkeypatch
     monkeypatch.setattr(save_draft_impl, "get_draft_profile", lambda: get_draft_profile("jianying_pro_10"))
     monkeypatch.setattr(save_draft_impl, "update_media_metadata", lambda script, task_id=None: None)
     monkeypatch.setattr(save_draft_impl, "IS_UPLOAD_DRAFT", False)
+    # Never touch the real CapCut drafts folder
+    monkeypatch.setattr(save_draft_impl, "find_capcut_projects_dir", lambda: None)
 
     try:
         save_draft_impl.save_draft_background(draft_id, None, draft_id)

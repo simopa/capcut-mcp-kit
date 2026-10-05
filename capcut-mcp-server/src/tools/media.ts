@@ -81,7 +81,7 @@ function text(t: string) {
 }
 
 function fail(error: unknown) {
-  return text(`Error: ${error instanceof Error ? error.message : String(error)}`);
+  return { ...text(`Error: ${error instanceof Error ? error.message : String(error)}`), isError: true };
 }
 
 export function registerMediaTools(server: McpServer): void {

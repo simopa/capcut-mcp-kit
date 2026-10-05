@@ -57,6 +57,9 @@ function formatResponse(data: any, format: ResponseFormat): {
     } else if (data.draft_url) {
       markdown += `## Draft Saved\n\n`;
       markdown += `Draft saved successfully at:\n\`${data.draft_url}\`\n\n`;
+      if (data.backups?.length) {
+        markdown += `The previous version was moved to:\n${data.backups.map((b: string) => `\`${b}\``).join('\n')}\n\n`;
+      }
       markdown += `The project is already in CapCut's projects folder: restart CapCut to see it in the list.\n`;
     } else {
       markdown += `## Operation Successful\n\n`;
@@ -71,9 +74,11 @@ function formatResponse(data: any, format: ResponseFormat): {
 
 function handleError(error: unknown): {
   content: Array<{ type: "text"; text: string }>;
+  isError: true;
 } {
   const message = error instanceof Error ? error.message : 'Unknown error occurred';
   return {
+    isError: true,
     content: [{
       type: "text" as const,
       text: `Error: ${message}\n\nPlease check that:\n- The CapCut API server is running\n- All required parameters are valid\n- Media URLs are accessible`
@@ -557,27 +562,32 @@ This tool finalizes the draft and writes it directly into the local CapCut draft
 (macOS: ~/Movies/CapCut/User Data/Projects/com.lveditor.draft), copying local media alongside it.
 CapCut only rescans its projects list on launch, so the user must restart CapCut to see the new project.
 
+Saving again under the same project_name replaces the project this draft saved before; the old folder is
+moved to ~/Movies/CapCut MCP Backups, never deleted. Replacing a project is refused while CapCut is open
+(quit it first), and a project not saved from this draft is replaced only with overwrite=true.
+
 Args:
   - draft_id (string): The draft ID to save
   - project_name (string, optional): Name shown in the CapCut projects list
+  - overwrite (boolean, optional): Replace an existing project not saved from this draft
   - response_format ('markdown' | 'json'): Output format
 
 Returns:
   {
     "draft_url": string,    // Path to the saved draft folder
-    "status": "saved"
+    "backups": string[]     // Where replaced folders were moved
   }`,
       inputSchema: SaveDraftSchema,
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
+        destructiveHint: true,
+        idempotentHint: false,
         openWorldHint: false
       }
     },
     async (params: SaveDraftInput) => {
       try {
-        const response = await apiClient.saveDraft(params.draft_id, params.project_name);
+        const response = await apiClient.saveDraft(params.draft_id, params.project_name, params.overwrite);
 
         if (!response.success || !response.result) {
           throw new Error(response.error || 'Failed to save draft');

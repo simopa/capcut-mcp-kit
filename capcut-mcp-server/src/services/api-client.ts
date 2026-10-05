@@ -139,8 +139,8 @@ export class CapCutApiClient {
     return this.request('/add_sticker', 'POST', this.mapPlacement(data));
   }
 
-  async saveDraft(draftId: string, projectName?: string) {
-    return this.request('/save_draft', 'POST', { draft_id: draftId, project_name: projectName });
+  async saveDraft(draftId: string, projectName?: string, overwrite?: boolean) {
+    return this.request('/save_draft', 'POST', { draft_id: draftId, project_name: projectName, overwrite });
   }
 
   async listTypes(endpoint: string) {
