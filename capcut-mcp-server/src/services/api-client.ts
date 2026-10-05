@@ -3,6 +3,7 @@
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from 'axios';
 import { API_BASE_URL } from '../constants.js';
 import type { ApiResponse } from '../types.js';
+import { ensureBackend } from './backend.js';
 
 export class CapCutApiClient {
   private client: AxiosInstance;
@@ -54,6 +55,7 @@ export class CapCutApiClient {
     params?: Record<string, any>
   ): Promise<ApiResponse<T>> {
     try {
+      await ensureBackend();
       const config: AxiosRequestConfig = {
         method,
         url: endpoint,

@@ -55,5 +55,5 @@ fi
 
 echo
 echo "Done. To use it:"
-echo "  1) $KIT/start-server.sh   (keep it running)"
-echo "  2) open Claude Code and approve the 'capcut' MCP server"
+echo "  open Claude Code and approve the 'capcut' MCP server"
+echo "  (the backend starts automatically; ./start-server.sh runs it by hand)"

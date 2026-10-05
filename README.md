@@ -52,15 +52,16 @@ cd capcut-mcp-kit
 
 ## Use
 
-1. Start the backend and keep it running:
-   ```bash
-   ./start-server.sh
-   ```
-2. Open Claude Code, approve the `capcut` MCP server, and ask, for example:
+1. Open Claude Code, approve the `capcut` MCP server, and ask, for example:
    > Vertical 9:16 project from `~/Desktop/interview.mp4`, keep 0:05–0:40, title "Episode 3" at the
    > top with a fade-in, background music `~/Music/bed.mp3` at 30% with a 2 s fade-out, save it as
    > "Episode 3".
-3. Restart CapCut and open the project.
+2. Restart CapCut and open the project.
+
+The MCP server starts the VectCutAPI backend by itself on the first tool call and leaves it running,
+so several clients (say, Claude Code and Codex) can share it and drafts in progress survive a closed
+session. Its log is `vectcut-api/server.log`. To start it by hand instead, run `./start-server.sh`
+(and set `CAPCUT_AUTOSTART=0` in the MCP server's environment to disable autostart).
 
 ## Tools
 
@@ -103,9 +104,10 @@ Conventions:
 ## Other MCP clients
 
 The kit is a standard local (stdio) MCP server, so any client that supports local MCP servers can
-use it: Claude Code, Claude Desktop, OpenAI Codex CLI, Cursor, and others. Run `./setup.sh` (it
-skips the Claude Code registration if `claude` is not installed), start the backend with
-`./start-server.sh`, then register the server in your client.
+use it: Claude Code, Claude Desktop, OpenAI Codex (CLI and app), Cursor, and others. Run `./setup.sh`
+(it skips the Claude Code registration if `claude` is not installed), then register the server in
+your client. Desktop apps may not see Homebrew's PATH: if `node` is not found, use its full path
+(`/opt/homebrew/bin/node` on Apple Silicon).
 
 **OpenAI Codex CLI** (`~/.codex/config.toml`):
 

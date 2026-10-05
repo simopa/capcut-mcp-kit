@@ -74,6 +74,8 @@ ENVIRONMENT VARIABLES:
   TRANSPORT           Transport type: 'stdio' (default) or 'http'
   PORT                HTTP server port (default: 3000)
   CAPCUT_API_URL      CapCut API base URL (default: http://localhost:9001)
+  CAPCUT_AUTOSTART    Set to 0 to not start the bundled backend automatically
+  CAPCUT_BACKEND_DIR  Backend folder to autostart (default: ../vectcut-api in this kit)
 
 EXAMPLES:
   # Run with stdio (for local integration)
@@ -97,13 +99,12 @@ CONFIGURATION:
     }
   }
 
-PREREQUISITES:
-  - CapCut API server must be running (VectCutAPI)
-  - Install from: https://github.com/sun-guannan/VectCutAPI
-  - Start server: python capcut_server.py
+BACKEND:
+  The bundled VectCutAPI backend (set up by setup.sh) is started automatically on the
+  first tool call when CAPCUT_API_URL is local, and keeps running afterwards.
 
 For more information, visit:
-  https://github.com/sun-guannan/VectCutAPI
+  https://github.com/simopa/capcut-mcp-kit
   `);
   process.exit(0);
 }

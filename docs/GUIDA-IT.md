@@ -20,12 +20,14 @@ cd capcut-mcp-kit
 
 ## Uso
 
-1. Avvia il server e lascialo aperto: `./start-server.sh`
-2. Apri Claude Code, approva il server `capcut` e chiedi il montaggio, ad esempio:
+1. Apri Claude Code (o Codex), approva il server `capcut` e chiedi il montaggio, ad esempio:
    *"Progetto verticale da `~/Desktop/intervista.mp4`, tieni dal secondo 5 al 40, titolo 'Puntata 3'
    in alto con dissolvenza, musica `~/Musica/base.mp3` al 30% con uscita in dissolvenza di 2 secondi,
    salvalo come 'Puntata 3'."*
-3. **Riavvia CapCut**: la lista dei progetti si aggiorna solo all'avvio.
+2. **Riavvia CapCut**: la lista dei progetti si aggiorna solo all'avvio.
+
+Il server Python parte da solo al primo comando e resta acceso (log in `vectcut-api/server.log`),
+così Claude e Codex possono usarlo insieme. Per avviarlo a mano c'è `./start-server.sh`.
 
 ## Cosa sapere
 
