@@ -1,0 +1,16 @@
+# Local environments and build output
+vectcut-api/venv/
+vectcut-api/.venv/
+capcut-mcp-server/node_modules/
+capcut-mcp-server/dist/
+
+# Local configuration (created from config.json.example by setup.sh)
+vectcut-api/config.json
+
+# Drafts generated when saving outside CapCut's folder
+vectcut-api/dfd_*/
+
+__pycache__/
+*.pyc
+*.log
+.DS_Store

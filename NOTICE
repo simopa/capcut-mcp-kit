@@ -1,0 +1,43 @@
+capcut-mcp-kit
+Copyright (c) 2026 simopa
+
+This repository bundles modified copies of two open-source projects.
+
+------------------------------------------------------------------------
+vectcut-api/
+  Based on VectCutAPI by sun-guannan
+  https://github.com/sun-guannan/VectCutAPI  (commit cfa4779a52f1dc59a56d90cc5868778eb50c6a97)
+  Licensed under the Apache License, Version 2.0 (see vectcut-api/LICENSE).
+
+  Changes made in this repository (each modified file carries a header notice):
+  - web_preview.py, capcut_server.py: the Windows-only desktop_companion import
+    is optional, so the server starts on macOS.
+  - save_draft_impl.py: drafts are written straight into the local CapCut drafts
+    folder (macOS and Windows), the folder is renamed to project_name, and
+    draft_meta_info.json is rewritten (the template carried the original
+    author's paths and ids).
+  - add_effect_impl.py: effect parameters are passed in order (they were
+    reversed, and an effect without parameters crashed).
+  - add_audio_track.py, capcut_server.py: audio fade_in / fade_out.
+  - add_image_impl.py, capcut_server.py: image rotation.
+  - The upstream mcp-server/ folder (a copy of the project below) is not included.
+
+------------------------------------------------------------------------
+capcut-mcp-server/
+  Based on capcut-mcp-server by Atx-Guy
+  https://github.com/Atx-Guy/capcut-mcp-server  (commit d154070b94b1194894111f016d6dfeaf1a24966f)
+  Licensed under the MIT License (see capcut-mcp-server/LICENSE).
+
+  Changes made in this repository:
+  - Responses: VectCutAPI returns its payload in "output", the tools read "result"
+    (without this no tool worked).
+  - Parameter names aligned with VectCutAPI: positions/scale, subtitles, keyframes
+    (correct endpoint and format), stickers, effects, text background.
+  - Real CapCut names for transitions, animations and effects instead of
+    placeholder lists, plus a new capcut_list_types tool.
+  - Local file paths accepted as media sources; target_start and track_name for
+    timeline placement and layering; project_name on save; CapCut font-size scale.
+------------------------------------------------------------------------
+
+Everything else in this repository (setup.sh, start-server.sh, README.md, docs/)
+is released under the MIT License (see LICENSE).
