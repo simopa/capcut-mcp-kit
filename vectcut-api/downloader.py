@@ -1,3 +1,6 @@
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: local files are cloned copy-on-write on macOS instead of fully copied.
+# See NOTICE at the repository root.
+import sys
 import os
 import subprocess
 import time
@@ -125,7 +128,15 @@ def download_file(url:str, local_filename, max_retries=3, timeout=180):
         start_time = time.time()
         
         # 复制文件
-        shutil.copy2(url, local_filename)
+        # capcut-mcp-kit: on APFS (macOS) make a copy-on-write clone: instant and no extra disk
+        # space for multi-GB videos; fall back to a regular copy elsewhere.
+        if os.path.exists(local_filename):
+            os.remove(local_filename)
+        cloned = False
+        if sys.platform == "darwin":
+            cloned = subprocess.run(["cp", "-c", url, local_filename], capture_output=True).returncode == 0
+        if not cloned:
+            shutil.copy2(url, local_filename)
         
         print(f"Copy completed in {time.time()-start_time:.2f} seconds")
         print(f"File saved as: {os.path.abspath(local_filename)}")

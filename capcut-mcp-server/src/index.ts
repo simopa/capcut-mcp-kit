@@ -12,6 +12,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
 import { registerTools } from './tools/index.js';
+import { registerMediaTools } from './tools/media.js';
 
 // Initialize MCP server
 const server = new McpServer({
@@ -21,6 +22,7 @@ const server = new McpServer({
 
 // Register all tools
 registerTools(server);
+registerMediaTools(server);
 
 // Server connection handlers
 async function runStdio(): Promise<void> {

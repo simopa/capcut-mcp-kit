@@ -1,0 +1,267 @@
+// Content-aware editing tools: transcription, pause detection, pause-free assembly, auto subtitles.
+// Heavy data (word timings) stays in the backend; tools return compact summaries to save tokens.
+
+import { z } from 'zod';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { apiClient } from '../services/api-client.js';
+
+const PAGE_CHARS = 12000;
+
+const LocalPath = z.string()
+  .min(1)
+  .describe('Absolute local path to the video or audio file');
+
+type Segment = { start: number; end: number; text: string };
+
+function clock(t: number): string {
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = (t % 60).toFixed(1).padStart(4, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${String(m).padStart(2, '0')}:${s}`;
+}
+
+// Whisper segments are often a few words long: merge them into readable blocks
+// that end on a sentence or after ~20 s, each with one time range.
+function toBlocks(segments: Segment[], maxSeconds = 20): Segment[] {
+  const blocks: Segment[] = [];
+  let cur: Segment | null = null;
+  for (const s of segments) {
+    if (cur && (s.end - cur.start > maxSeconds || s.start - cur.end > 2)) {
+      blocks.push(cur);
+      cur = null;
+    }
+    cur = cur ? { start: cur.start, end: s.end, text: `${cur.text} ${s.text}` } : { ...s };
+    if (/[.!?]$/.test(s.text) && cur.end - cur.start > maxSeconds / 2) {
+      blocks.push(cur);
+      cur = null;
+    }
+  }
+  if (cur) blocks.push(cur);
+  return blocks;
+}
+
+function text(t: string) {
+  return { content: [{ type: 'text' as const, text: t }] };
+}
+
+function fail(error: unknown) {
+  return text(`Error: ${error instanceof Error ? error.message : String(error)}`);
+}
+
+export function registerMediaTools(server: McpServer): void {
+  server.registerTool(
+    'capcut_transcribe',
+    {
+      title: 'Transcribe Speech',
+      description: `Transcribe the speech of a local video/audio file with Whisper (runs locally, nothing is uploaded).
+
+Returns the transcript as time-stamped blocks ("[mm:ss.s–mm:ss.s] text"), paginated. Word-level
+timings are kept in the backend and used by capcut_add_video_without_pauses and
+capcut_add_auto_subtitles, so transcribe a file once before using those.
+
+Long files take a while (about 1/5 of their length on an Apple Silicon Mac; ~9 min for 52 min).
+If the result is not ready the tool answers "running": call it again with the same arguments
+to wait more. Results are cached, so repeat calls on a transcribed file are instant.
+
+Args:
+  - path (string): Absolute local path
+  - language (string): Optional ISO code, e.g. "it", "en" (auto-detected if omitted)
+  - model ('turbo' | 'large' | 'small'): turbo = best speed/quality (default), small = fastest
+  - from_time / to_time (number): Only return blocks in this range, in seconds
+Pages hold ~${PAGE_CHARS} characters; the reply says where to continue (from_time).`,
+      inputSchema: z.object({
+        path: LocalPath,
+        language: z.string().min(2).max(5).optional().describe('ISO language code, e.g. "it"'),
+        model: z.enum(['turbo', 'large', 'small']).default('turbo').describe('Whisper model'),
+        from_time: z.number().min(0).default(0).describe('Return blocks starting from this time (s)'),
+        to_time: z.number().positive().optional().describe('Return blocks up to this time (s)')
+      }).strict(),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    async (params) => {
+      try {
+        const r = await apiClient.request<any>('/transcribe', 'POST',
+          { path: params.path, language: params.language, model: params.model, wait: 45 });
+        if (!r.success) throw new Error(r.error);
+        const out = r.result;
+        if (out.status === 'running') {
+          return text(`Transcription running (${out.elapsed}s elapsed). Call capcut_transcribe again with the same path to keep waiting.`);
+        }
+        const t = out.transcript;
+        const blocks = toBlocks(t.segments).filter((b) =>
+          b.end > params.from_time && (params.to_time === undefined || b.start < params.to_time));
+        let body = '';
+        let shownUntil = params.from_time;
+        let truncated = false;
+        for (const b of blocks) {
+          const line = `[${clock(b.start)}–${clock(b.end)}] ${b.text}\n`;
+          if (body.length + line.length > PAGE_CHARS) {
+            truncated = true;
+            break;
+          }
+          body += line;
+          shownUntil = b.end;
+        }
+        const header = `Transcript of ${t.source} (${t.language}, ${clock(t.duration)}, ${t.engine} ${t.model})\n\n`;
+        const footer = truncated
+          ? `\n[Page ends at ${clock(shownUntil)}: call again with from_time=${Math.floor(shownUntil)} for more]`
+          : '\n[End of transcript]';
+        return text(header + body + footer);
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    'capcut_detect_pauses',
+    {
+      title: 'Detect Pauses',
+      description: `Preview which parts of a file are speech and which are pauses, without changing any draft.
+
+Uses the transcript's word timings when the file has been transcribed (robust to background noise),
+otherwise ffmpeg's silence detection. Returns how much would be removed and the first kept ranges.
+Use it to tune min_pause before capcut_add_video_without_pauses.
+
+Args:
+  - path (string): Absolute local path
+  - start / end (number): Source range to analyse, in seconds (default: whole file)
+  - min_pause (number): Pauses at least this long are cut (default 0.7 s)
+  - padding (number): Seconds kept around speech so cuts don't clip words (default 0.15)
+  - method ('auto' | 'transcript' | 'audio'): auto = transcript if available, else audio
+  - noise_db (number): Silence threshold for method audio (default -35 dB)`,
+      inputSchema: z.object({
+        path: LocalPath,
+        start: z.number().min(0).default(0),
+        end: z.number().positive().optional(),
+        min_pause: z.number().min(0.1).max(10).default(0.7),
+        padding: z.number().min(0).max(1).default(0.15),
+        method: z.enum(['auto', 'transcript', 'audio']).default('auto'),
+        noise_db: z.number().min(-80).max(-10).default(-35)
+      }).strict(),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    async (params) => {
+      try {
+        const r = await apiClient.request<any>('/detect_pauses', 'POST', params);
+        if (!r.success) throw new Error(r.error);
+        const p = r.result;
+        const sample = p.ranges.slice(0, 15).map(([s, e]: number[]) => `${clock(s)}–${clock(e)}`).join(', ');
+        return text(
+          `Method: ${p.method}\n` +
+          `Range: ${clock(p.start)}–${clock(p.end)} (${p.original_duration}s)\n` +
+          `Kept: ${p.kept_duration}s in ${p.ranges.length} pieces (${p.cuts} cuts), removed ${p.removed_duration}s\n` +
+          `First kept ranges: ${sample}${p.ranges.length > 15 ? ', …' : ''}`);
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    'capcut_add_video_without_pauses',
+    {
+      title: 'Add Video Without Pauses',
+      description: `Add a source range of a local video to the draft with its pauses cut out, in one call:
+the speech pieces are placed back to back on the track (jump cuts), sharing one media file.
+
+Transcribe the file first (capcut_transcribe) for word-accurate cuts; without a transcript the
+cuts come from audio silence detection. Afterwards capcut_add_auto_subtitles places subtitles
+correctly on the cut timeline. Preview the effect with capcut_detect_pauses.
+
+Args:
+  - draft_id (string): Draft ID (a new draft is created if it does not exist)
+  - video_url (string): Absolute local path to the video
+  - start / end (number): Source range in seconds (default: whole file)
+  - target_start (number): Where the first piece starts on the timeline (default 0)
+  - min_pause / padding / method / noise_db: as in capcut_detect_pauses
+  - volume (number): 0.0-1.0 (default 1.0)
+  - track_name (string): Video track (default "video_main")
+  - width / height (number): Canvas size if the draft has to be created (default 1080x1920)
+
+Returns the number of pieces, the new duration and timeline_end (where the next item can go).`,
+      inputSchema: z.object({
+        draft_id: z.string().min(1),
+        video_url: LocalPath,
+        start: z.number().min(0).default(0),
+        end: z.number().positive().optional(),
+        target_start: z.number().min(0).default(0),
+        min_pause: z.number().min(0.1).max(10).default(0.7),
+        padding: z.number().min(0).max(1).default(0.15),
+        method: z.enum(['auto', 'transcript', 'audio']).default('auto'),
+        noise_db: z.number().min(-80).max(-10).default(-35),
+        volume: z.number().min(0).max(1).default(1.0),
+        track_name: z.string().min(1).optional(),
+        width: z.number().int().min(360).max(4096).default(1080),
+        height: z.number().int().min(360).max(4096).default(1920)
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+    },
+    async (params) => {
+      try {
+        const r = await apiClient.request<any>('/add_video_without_pauses', 'POST', params);
+        if (!r.success) throw new Error(r.error);
+        const p = r.result;
+        return text(
+          `Added ${p.segments} pieces (${p.cuts} cuts, method ${p.method}) to draft ${p.draft_id}.\n` +
+          `Duration ${p.original_duration}s -> ${p.new_duration}s (removed ${p.removed_duration}s). ` +
+          `Timeline now ends at ${p.timeline_end}s.`);
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    'capcut_add_auto_subtitles',
+    {
+      title: 'Add Automatic Subtitles',
+      description: `Generate subtitles from the transcript of a video already on the draft's timeline and add them.
+
+Subtitles follow the edit: words from parts that were cut are dropped and the rest are shifted to
+where they play on the timeline (works with capcut_add_video_without_pauses and capcut_add_video).
+The file must have been transcribed with capcut_transcribe. Lines are short, social-media style.
+
+Args:
+  - draft_id (string): Draft ID
+  - video_url (string): Absolute local path of the video on the timeline
+  - max_chars (number): Max characters per subtitle (default 32)
+  - max_duration (number): Max seconds per subtitle (default 3)
+  - font_size (number): CapCut scale (default 8)
+  - font_color (string): Hex color (default #FFFFFF)
+  - bold (boolean): default true
+  - border_color / border_width: Text outline, e.g. "#000000" and 40 for a readable outline (default none)
+  - background_color / background_alpha: Box behind the text (alpha 0 = no box, default)
+  - position_y (number): Vertical position 0 (top) to 1 (bottom) (default 0.8)
+  - track_name (string): Default "subtitle"`,
+      inputSchema: z.object({
+        draft_id: z.string().min(1),
+        video_url: LocalPath,
+        max_chars: z.number().int().min(8).max(80).default(32),
+        max_duration: z.number().min(0.5).max(10).default(3),
+        font: z.string().optional(),
+        font_size: z.number().min(1).max(100).default(8),
+        font_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default('#FFFFFF'),
+        bold: z.boolean().default(true),
+        border_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+        border_width: z.number().min(0).max(100).optional(),
+        background_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+        background_alpha: z.number().min(0).max(1).optional(),
+        position_y: z.number().min(0).max(1).default(0.8),
+        track_name: z.string().min(1).optional()
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+    },
+    async (params) => {
+      try {
+        const { position_y, ...rest } = params;
+        const r = await apiClient.request<any>('/add_auto_subtitles', 'POST',
+          { ...rest, transform_y: (0.5 - position_y) * 2 });
+        if (!r.success) throw new Error(r.error);
+        return text(`Added ${r.result.subtitles} subtitles to draft ${r.result.draft_id}. First:\n${r.result.first}`);
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+}

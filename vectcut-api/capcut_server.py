@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles; add_video records clip placement.
 # See NOTICE at the repository root.
 import requests
 import os
@@ -30,6 +30,7 @@ from add_subtitle_impl import add_subtitle_impl
 from add_image_impl import add_image_impl
 from add_video_keyframe_impl import add_video_keyframe_impl
 from save_draft_impl import save_draft_impl, query_task_status, query_script_impl
+import media_analysis
 from add_effect_impl import add_effect_impl
 from add_sticker_impl import add_sticker_impl
 from create_draft import create_draft
@@ -129,6 +130,9 @@ def add_video():
         )
         
         broadcast_draft_update(draft_id=draft_id, action="add_video")
+        if end and os.path.isfile(os.path.expanduser(str(video_url))):
+            # Remember the placement so auto subtitles can follow this clip
+            media_analysis.record_placement(draft_result["draft_id"], video_url, start, end, target_start, speed)
         result["success"] = True
         result["output"] = draft_result
         return jsonify(result)
@@ -1587,6 +1591,66 @@ def get_video_character_effect_types():
         result["success"] = False
         result["error"] = f"Error occurred while getting character effect types: {str(e)}"
         return jsonify(result)
+
+
+
+# ---- capcut-mcp-kit: content-aware editing (see media_analysis.py) ----
+
+def _media_route(fn):
+    try:
+        return jsonify({"success": True, "output": fn(request.get_json() or {}), "error": ""})
+    except Exception as e:
+        return jsonify({"success": False, "output": "", "error": str(e)})
+
+
+@app.route('/transcribe', methods=['POST'])
+def transcribe():
+    return _media_route(lambda d: media_analysis.transcribe(
+        d["path"], model=d.get("model", "turbo"), language=d.get("language"), wait=float(d.get("wait", 45))))
+
+
+@app.route('/detect_pauses', methods=['POST'])
+def detect_pauses():
+    return _media_route(lambda d: media_analysis.speech_ranges(
+        d["path"], start=float(d.get("start", 0)), end=d.get("end"), min_pause=float(d.get("min_pause", 0.7)),
+        padding=float(d.get("padding", 0.15)), method=d.get("method", "auto"), noise_db=float(d.get("noise_db", -35))))
+
+
+@app.route('/add_video_without_pauses', methods=['POST'])
+def add_video_without_pauses():
+    def run(d):
+        out = media_analysis.add_video_without_pauses(
+            d.get("draft_id"), d["video_url"], start=float(d.get("start", 0)), end=d.get("end"),
+            target_start=float(d.get("target_start", 0)), min_pause=float(d.get("min_pause", 0.7)),
+            padding=float(d.get("padding", 0.15)), method=d.get("method", "auto"),
+            noise_db=float(d.get("noise_db", -35)), volume=float(d.get("volume", 1.0)),
+            track_name=d.get("track_name") or "video_main",
+            width=int(d.get("width", 1080)), height=int(d.get("height", 1920)))
+        broadcast_draft_update(draft_id=out["draft_id"], action="add_video")
+        return out
+    return _media_route(run)
+
+
+@app.route('/add_auto_subtitles', methods=['POST'])
+def add_auto_subtitles():
+    def run(d):
+        words = media_analysis.timeline_words(d["draft_id"], d["video_url"])
+        srt, count = media_analysis.build_srt(words, max_chars=int(d.get("max_chars", 32)),
+                                              max_duration=float(d.get("max_duration", 3.0)))
+        if count == 0:
+            raise RuntimeError("No speech found on the timeline for this video")
+        add_subtitle_impl(
+            srt_path=srt, draft_id=d["draft_id"], track_name=d.get("track_name") or "subtitle",
+            font=d.get("font"), font_size=float(d.get("font_size", 8.0)),
+            bold=bool(d.get("bold", True)), font_color=d.get("font_color", "#FFFFFF"),
+            border_color=d.get("border_color", "#000000"), border_width=float(d.get("border_width", 0.0)),
+            border_alpha=1.0,
+            background_color=d.get("background_color", "#000000"),
+            background_alpha=float(d.get("background_alpha", 0.0)),
+            transform_y=float(d.get("transform_y", -0.6)), vertical=False, alpha=1.0,
+            width=int(d.get("width", 1080)), height=int(d.get("height", 1920)))
+        return {"draft_id": d["draft_id"], "subtitles": count, "first": srt.split("\n\n", 1)[0]}
+    return _media_route(run)
 
 
 if __name__ == '__main__':

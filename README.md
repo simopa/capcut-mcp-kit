@@ -29,14 +29,21 @@ The assistant builds the project through tools; VectCutAPI writes it into
 `~/Movies/CapCut/User Data/Projects/com.lveditor.draft/<project name>`, copying local media next to
 it. **CapCut only rescans its project list at launch: restart CapCut to see a new project.**
 
-The assistant does not see or hear your footage. It knows durations and sizes, so cuts are by time
-("from 0:12 to 0:47"). For content-based edits, give it a transcript with timestamps (e.g. from
-Whisper) or let it extract frames with ffmpeg and look at them.
+**Content-aware editing.** The kit transcribes speech locally with Whisper (mlx-whisper on Apple
+Silicon: about 9 minutes for a 52-minute talk on an M1; nothing is uploaded). The transcript is saved
+next to the video (`<name>.transcript.json` and a readable `<name>.transcript.txt`), so each file is
+transcribed once. From it the assistant can cut by what is said, remove pauses (jump cuts) in one
+call, and add subtitles that follow the edit.
+
+**Media files.** CapCut is sandboxed and can only open files in `~/Movies` by itself. Videos in
+`~/Movies` are used where they are; other local files are placed in the project as an APFS clone
+(instant, no extra disk space until modified).
 
 ## Requirements
 
 - macOS, [CapCut desktop](https://www.capcut.com/) (opened at least once)
 - [Homebrew](https://brew.sh), then `brew install node python ffmpeg`
+- About 3 GB free: Python packages for Whisper (~1.3 GB) and the Whisper model (~1.6 GB)
 - [Claude Code](https://claude.com/claude-code) (or another MCP client)
 
 ffmpeg/ffprobe are used to read media width, height and duration, which CapCut needs in the project.
@@ -79,6 +86,10 @@ session. Its log is `vectcut-api/server.log`. To start it by hand instead, run `
 | `capcut_list_types` | Exact CapCut names: transitions, animations, text animations, effects, masks, audio effects, fonts |
 | `capcut_save_draft` | Save into CapCut's projects folder under `project_name` |
 | `capcut_get_duration` | Duration and size of a media file |
+| `capcut_transcribe` | Local Whisper transcript as time-stamped blocks (paginated, cached next to the file) |
+| `capcut_detect_pauses` | Preview speech vs pauses and how much would be cut |
+| `capcut_add_video_without_pauses` | Add a video with its pauses removed (jump cuts), in one call |
+| `capcut_add_auto_subtitles` | Subtitles from the transcript, short social-style lines, aligned to the edit |
 
 Conventions:
 

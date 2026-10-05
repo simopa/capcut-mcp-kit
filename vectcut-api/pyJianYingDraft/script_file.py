@@ -1,3 +1,5 @@
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: import_srt no longer crashes when no font is given.
+# See NOTICE at the repository root.
 import os
 import json
 import math
@@ -500,6 +502,7 @@ class Script_file:
         if style_reference is None and clip_settings is None:
             raise ValueError("未提供样式参考时请提供`clip_settings`参数")
 
+        font_type = None  # capcut-mcp-kit: was unbound when no font was given
         if font:
             try:
                 font_type = getattr(Font_type, font)

@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: save straight into the local CapCut drafts folder (macOS/Windows), rename the folder to project_name, fix draft_meta_info.json.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: save straight into the local CapCut drafts folder (macOS/Windows), rename the folder to project_name, fix draft_meta_info.json; media under ~/Movies referenced in place; each file copied once even when used by many clips.
 # See NOTICE at the repository root.
 import os
 import pyJianYingDraft as draft
@@ -79,6 +79,18 @@ def fix_draft_meta(draft_dir, display_name, duration):
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False)
 
+def use_in_place(material, source) -> bool:
+    """Reference local media where it is instead of copying it into the project. CapCut is
+    sandboxed and can only open files under ~/Movies on its own, so this applies there; other
+    local files are cloned into the project (copy-on-write, see downloader.download_file).
+    Returns True if handled."""
+    local = os.path.realpath(os.path.expanduser(str(source)))
+    movies = os.path.realpath(os.path.expanduser("~/Movies")) + os.sep
+    if IS_UPLOAD_DRAFT or not os.path.isfile(local) or not local.startswith(movies):
+        return False
+    material.replace_path = local
+    return True
+
 def save_draft_background(draft_id, draft_folder, task_id, project_name=None, auto_deploy=True):
     """Background save draft to OSS and auto-deploy to CapCut desktop"""
     try:
@@ -155,6 +167,8 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
                 if not remote_url:
                     logger.warning(f"Audio file {material_name} has no remote_url, skipping download.")
                     continue
+                if use_in_place(audio, remote_url):
+                    continue
                 
                 # Add audio download task
                 download_tasks.append({
@@ -178,6 +192,8 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
                     if not remote_url:
                         logger.warning(f"Image file {material_name} has no remote_url, skipping download.")
                         continue
+                    if use_in_place(video, remote_url):
+                        continue
                     
                     # Add image download task
                     download_tasks.append({
@@ -194,6 +210,8 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
                     if not remote_url:
                         logger.warning(f"Video file {material_name} has no remote_url, skipping download.")
                         continue
+                    if use_in_place(video, remote_url):
+                        continue
                     
                     # Add video download task
                     download_tasks.append({
@@ -206,6 +224,12 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
         update_task_field(task_id, "message", f"Collected {len(download_tasks)} download tasks in total")
         update_task_field(task_id, "progress", 10)
         logger.info(f"Task {task_id} progress 10%: Collected {len(download_tasks)} download tasks in total.")
+
+        # Several clips of the same file share one destination: copy/download it only once
+        unique_tasks = {}
+        for task in download_tasks:
+            unique_tasks.setdefault(task['args'][1], task)
+        download_tasks = list(unique_tasks.values())
 
         # Execute all download tasks concurrently
         downloaded_paths = []
@@ -748,6 +772,12 @@ def download_script(draft_id: str, draft_folder: str = None, script_data: Dict =
                         'args': (remote_url, video['path']),
                         'material': video
                     })
+
+        # Several clips of the same file share one destination: copy/download it only once
+        unique_tasks = {}
+        for task in download_tasks:
+            unique_tasks.setdefault(task['args'][1], task)
+        download_tasks = list(unique_tasks.values())
 
         # Execute all download tasks concurrently
         downloaded_paths = []

@@ -20,6 +20,14 @@ vectcut-api/
     reversed, and an effect without parameters crashed).
   - add_audio_track.py, capcut_server.py: audio fade_in / fade_out.
   - add_image_impl.py, capcut_server.py: image rotation.
+  - media_analysis.py (new): local Whisper transcription saved next to the video,
+    pause detection, pause-free assembly with one shared media material, and
+    subtitles generated from the transcript that follow the edit.
+  - capcut_server.py: routes for the above; add_video records clip placement.
+  - save_draft_impl.py: media under ~/Movies is referenced in place (CapCut is
+    sandboxed and can read that folder); a file used by many clips is copied once.
+  - downloader.py: local files are cloned copy-on-write on macOS (APFS).
+  - pyJianYingDraft/script_file.py: import_srt crashed when no font was given.
   - The upstream mcp-server/ folder (a copy of the project below) is not included.
 
 ------------------------------------------------------------------------
@@ -37,6 +45,9 @@ capcut-mcp-server/
     placeholder lists, plus a new capcut_list_types tool.
   - Local file paths accepted as media sources; target_start and track_name for
     timeline placement and layering; project_name on save; CapCut font-size scale.
+  - The bundled backend is started automatically (services/backend.ts).
+  - Content-aware tools (tools/media.ts): capcut_transcribe, capcut_detect_pauses,
+    capcut_add_video_without_pauses, capcut_add_auto_subtitles.
 ------------------------------------------------------------------------
 
 Everything else in this repository (setup.sh, start-server.sh, README.md, docs/)

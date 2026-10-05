@@ -29,6 +29,16 @@ cd capcut-mcp-kit
 Il server Python parte da solo al primo comando e resta acceso (log in `vectcut-api/server.log`),
 così Claude e Codex possono usarlo insieme. Per avviarlo a mano c'è `./start-server.sh`.
 
+## Trascrizione, pause e sottotitoli
+
+- La trascrizione gira sul Mac con Whisper (su M1 circa 9 minuti per 52 minuti di parlato), niente
+  viene caricato online. Viene salvata accanto al video: `nome.transcript.json` (dati con i tempi
+  di ogni parola) e `nome.transcript.txt` (testo leggibile). Ogni video si trascrive una volta sola.
+- Con la trascrizione l'assistente può tagliare in base a cosa dici, togliere le pause in un colpo
+  solo e aggiungere sottotitoli che seguono i tagli.
+- CapCut può aprire da solo solo i file nella cartella Filmati (`~/Movies`): lì i video vengono usati
+  dove sono; gli altri entrano nel progetto come copia istantanea del Mac, senza occupare spazio in più.
+
 ## Cosa sapere
 
 - L'assistente non vede né sente il video: conosce durata e dimensioni, quindi taglia per tempi.

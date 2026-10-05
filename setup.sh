@@ -31,6 +31,14 @@ python3 -m venv venv
 ./venv/bin/pip install -q -r requirements.txt
 [[ -f config.json ]] || cp config.json.example config.json
 
+echo "==> Speech transcription (Whisper)"
+if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+  ./venv/bin/pip install -q mlx-whisper      # Apple Silicon GPU
+else
+  ./venv/bin/pip install -q faster-whisper   # CPU, any platform
+fi
+echo "    (the Whisper model, ~1.6 GB, downloads on the first transcription)"
+
 echo "==> Building the MCP server"
 cd "$KIT/capcut-mcp-server"
 rm -rf node_modules dist
