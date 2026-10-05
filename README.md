@@ -90,6 +90,7 @@ session. Its log is `vectcut-api/server.log`. To start it by hand instead, run `
 | `capcut_detect_pauses` | Preview speech vs pauses and how much would be cut |
 | `capcut_add_video_without_pauses` | Add a video with its pauses removed (jump cuts), in one call |
 | `capcut_add_auto_subtitles` | Subtitles from the transcript, short social-style lines, aligned to the edit |
+| `capcut_add_camera_move` | Virtual camera moves over a time range: punch-in, zoom in/out, push, pull, punch, bounce, pans, tilts, rotate-in, dutch tilt, handheld drift, whips (keyframes, continuous across cuts) and CapCut effects (shake, lens zoom, fisheye, focus pull, flash, glitch…) |
 
 Conventions:
 
@@ -100,6 +101,9 @@ Conventions:
 - **Transitions** go on the *earlier* clip: they lead from that clip into the next one.
 - **Tracks:** items on one track cannot overlap in time. Give a second title, a picture-in-picture
   clip or a second audio a different `track_name`.
+- **Camera moves** start and end on the clip's own framing, so they only affect their range; with
+  `capcut_add_video_without_pauses`, `punch_in_zoom: 1.12` alternates a tighter framing on every
+  other piece to hide jump cuts.
 - **Color correction:** saturation/contrast/brightness keyframes with the same value at the clip's
   start and end act as a constant adjustment, still editable in CapCut.
 

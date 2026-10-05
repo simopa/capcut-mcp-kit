@@ -39,6 +39,15 @@ così Claude e Codex possono usarlo insieme. Per avviarlo a mano c'è `./start-s
 - CapCut può aprire da solo solo i file nella cartella Filmati (`~/Movies`): lì i video vengono usati
   dove sono; gli altri entrano nel progetto come copia istantanea del Mac, senza occupare spazio in più.
 
+## Movimenti di camera
+
+`capcut_add_camera_move` aggiunge movimenti "virtuali" su un tratto di tempo: avvicinamento netto e
+ritorno (punch_in), zoom morbido avanti e indietro, avvicinamento lento, colpo su una parola (punch),
+panoramiche, inclinazioni, effetto camera a mano, frustate, e gli effetti di CapCut (tremolio,
+fisheye, messa a fuoco, flash, glitch). Funzionano anche attraverso i tagli e tornano sempre
+all'inquadratura di partenza. Togliendo le pause, `punch_in_zoom: 1.12` alterna un'inquadratura più
+stretta su un pezzo sì e uno no, per nascondere i salti.
+
 ## Cosa sapere
 
 - L'assistente non vede né sente il video: conosce durata e dimensioni, quindi taglia per tempi.

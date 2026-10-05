@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles; add_video records clip placement.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; add_video records clip placement.
 # See NOTICE at the repository root.
 import requests
 import os
@@ -31,6 +31,7 @@ from add_image_impl import add_image_impl
 from add_video_keyframe_impl import add_video_keyframe_impl
 from save_draft_impl import save_draft_impl, query_task_status, query_script_impl
 import media_analysis
+import camera_moves
 from add_effect_impl import add_effect_impl
 from add_sticker_impl import add_sticker_impl
 from create_draft import create_draft
@@ -1625,7 +1626,8 @@ def add_video_without_pauses():
             padding=float(d.get("padding", 0.15)), method=d.get("method", "auto"),
             noise_db=float(d.get("noise_db", -35)), volume=float(d.get("volume", 1.0)),
             track_name=d.get("track_name") or "video_main",
-            width=int(d.get("width", 1080)), height=int(d.get("height", 1920)))
+            width=int(d.get("width", 1080)), height=int(d.get("height", 1920)),
+            punch_in_zoom=float(d.get("punch_in_zoom", 1.0)))
         broadcast_draft_update(draft_id=out["draft_id"], action="add_video")
         return out
     return _media_route(run)
@@ -1651,6 +1653,20 @@ def add_auto_subtitles():
             width=int(d.get("width", 1080)), height=int(d.get("height", 1920)))
         return {"draft_id": d["draft_id"], "subtitles": count, "first": srt.split("\n\n", 1)[0]}
     return _media_route(run)
+
+
+
+@app.route('/camera_moves', methods=['GET'])
+def camera_moves_list():
+    return jsonify({"success": True, "output": camera_moves.list_moves(), "error": ""})
+
+
+@app.route('/add_camera_move', methods=['POST'])
+def add_camera_move():
+    return _media_route(lambda d: camera_moves.add_camera_move(
+        d["draft_id"], d["move"], float(d["start"]), float(d["end"]),
+        intensity=float(d.get("intensity", 1.0)), track_name=d.get("track_name") or "video_main",
+        flash=bool(d.get("flash", False))))
 
 
 if __name__ == '__main__':

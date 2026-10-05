@@ -7,6 +7,42 @@ import { apiClient } from '../services/api-client.js';
 
 const PAGE_CHARS = 12000;
 
+// Mirrors vectcut-api/camera_moves.py
+const CAMERA_MOVES = {
+  keyframes: [
+    ['punch_in', 'cut in closer for the range, then cut back'],
+    ['zoom_in_out', 'smoothly move in, hold, ease back out'],
+    ['push_in', 'slow continuous push in (Ken Burns)'],
+    ['pull_out', 'start close, slowly pull back'],
+    ['punch', 'impact hit: fast zoom kick that settles (~0.5 s)'],
+    ['zoom_bounce', 'quick zoom in with a small elastic overshoot'],
+    ['pan_left', 'camera pans left'],
+    ['pan_right', 'camera pans right'],
+    ['tilt_up', 'camera tilts up'],
+    ['tilt_down', 'camera tilts down'],
+    ['rotate_in', 'enter rotated and zoomed, straighten out'],
+    ['dutch_tilt', 'hold a tilted (dutch angle) framing'],
+    ['handheld', 'subtle floating handheld drift'],
+    ['whip_left', 'fast whip pan out to the left at the end of the range'],
+    ['whip_right', 'fast whip pan out to the right at the end of the range']
+  ],
+  effects: [
+    ['shake', 'camera shake / quake'],
+    ['shake_strong', 'stronger, rougher shake'],
+    ['lens_zoom', 'lens zoom pulse'],
+    ['mini_zoom', 'small rhythmic zoom'],
+    ['chroma_zoom', 'zoom with chromatic aberration'],
+    ['fisheye', 'fisheye lens distortion'],
+    ['focus_pull', 'rack focus (blur to sharp)'],
+    ['motion_blur', 'motion blur (use with whips)'],
+    ['swing', 'swinging camera'],
+    ['flash', 'white flash'],
+    ['flash_black', 'black flash'],
+    ['glitch', 'digital glitch']
+  ]
+} as const;
+const ALL_MOVES = [...CAMERA_MOVES.keyframes, ...CAMERA_MOVES.effects].map(([n]) => n) as unknown as [string, ...string[]];
+
 const LocalPath = z.string()
   .min(1)
   .describe('Absolute local path to the video or audio file');
@@ -176,6 +212,8 @@ Args:
   - target_start (number): Where the first piece starts on the timeline (default 0)
   - min_pause / padding / method / noise_db: as in capcut_detect_pauses
   - volume (number): 0.0-1.0 (default 1.0)
+  - punch_in_zoom (number): e.g. 1.12 = every other piece is framed 12% tighter, the classic way
+    to hide jump cuts in talking-head videos (default 1 = off)
   - track_name (string): Video track (default "video_main")
   - width / height (number): Canvas size if the draft has to be created (default 1080x1920)
 
@@ -191,6 +229,8 @@ Returns the number of pieces, the new duration and timeline_end (where the next 
         method: z.enum(['auto', 'transcript', 'audio']).default('auto'),
         noise_db: z.number().min(-80).max(-10).default(-35),
         volume: z.number().min(0).max(1).default(1.0),
+        punch_in_zoom: z.number().min(1).max(2).default(1.0)
+          .describe('Alternate framing on every other piece (e.g. 1.12) to hide jump cuts; 1 = off'),
         track_name: z.string().min(1).optional(),
         width: z.number().int().min(360).max(4096).default(1080),
         height: z.number().int().min(360).max(4096).default(1920)
@@ -259,6 +299,54 @@ Args:
           { ...rest, transform_y: (0.5 - position_y) * 2 });
         if (!r.success) throw new Error(r.error);
         return text(`Added ${r.result.subtitles} subtitles to draft ${r.result.draft_id}. First:\n${r.result.first}`);
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    'capcut_add_camera_move',
+    {
+      title: 'Add Camera Move',
+      description: `Add a virtual camera move over a time range of the timeline (mMovements-style).
+
+Keyframe moves animate the clips on a video track (default "video_main"); a move can span several
+clips, e.g. after pause removal, and stays continuous across the cuts:
+${CAMERA_MOVES.keyframes.map(([n, d]) => `  - ${n}: ${d}`).join('\n')}
+
+Effect moves add a CapCut effect on the "camera_fx" track:
+${CAMERA_MOVES.effects.map(([n, d]) => `  - ${n}: ${d}`).join('\n')}
+
+Use the transcript to place moves on meaningful moments: a punch_in on a key sentence, a punch on
+a strong word, push_in during a build-up, shake on an emotional beat. Don't overdo it: a move every
+10-20 seconds reads as edited, constant motion reads as noise.
+
+Args:
+  - draft_id (string), move (string)
+  - start / end (number): Timeline range in seconds
+  - intensity (number): 0.3 subtle - 1 default - 2 strong
+  - track_name (string): Video track to move (keyframe moves)
+  - flash (boolean): Add a short white flash at the start (good with punch / punch_in)`,
+      inputSchema: z.object({
+        draft_id: z.string().min(1),
+        move: z.enum(ALL_MOVES),
+        start: z.number().min(0),
+        end: z.number().positive(),
+        intensity: z.number().min(0.1).max(3).default(1),
+        track_name: z.string().min(1).optional(),
+        flash: z.boolean().default(false)
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+    },
+    async (params) => {
+      try {
+        const r = await apiClient.request<any>('/add_camera_move', 'POST', params);
+        if (!r.success) throw new Error(r.error);
+        const p = r.result;
+        return text(p.kind === 'effect'
+          ? `Added ${p.move} (effect) from ${params.start}s to ${params.end}s.`
+          : `Added ${p.move} from ${params.start}s to ${params.end}s on ${p.clips} clip(s).`);
       } catch (error) {
         return fail(error);
       }

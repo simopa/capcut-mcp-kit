@@ -294,7 +294,8 @@ def record_placement(draft_id: str, src: str, src_start: float, src_end: float, 
 def add_video_without_pauses(draft_id: Optional[str], video_url: str, start: float = 0, end: Optional[float] = None,
                              target_start: float = 0, min_pause: float = 0.7, padding: float = 0.15,
                              method: str = "auto", noise_db: float = -35, volume: float = 1.0,
-                             track_name: str = "video_main", width: int = 1080, height: int = 1920) -> dict:
+                             track_name: str = "video_main", width: int = 1080, height: int = 1920,
+                             punch_in_zoom: float = 1.0) -> dict:
     """Place the speech parts of a source range back to back, with a single shared media material."""
     path = _local_path(video_url)
     plan = speech_ranges(path, start, end, min_pause, padding, method, noise_db)
@@ -307,11 +308,13 @@ def add_video_without_pauses(draft_id: Optional[str], video_url: str, start: flo
                                     material_name=f"video_{url_to_hash(path)}.mp4",
                                     duration=plan["end"], width=0, height=0)
     cursor = target_start
-    for s, e in plan["ranges"]:
+    for i, (s, e) in enumerate(plan["ranges"]):
+        # Alternate a tighter framing on every other piece to hide the jump cuts
+        zoom = punch_in_zoom if i % 2 == 1 else 1.0
         seg = draft.Video_segment(material,
                                   target_timerange=trange(f"{cursor}s", f"{e - s}s"),
                                   source_timerange=trange(f"{s}s", f"{e - s}s"),
-                                  clip_settings=Clip_settings(), volume=volume)
+                                  clip_settings=Clip_settings(scale_x=zoom, scale_y=zoom), volume=volume)
         script.add_segment(seg, track_name=track_name)
         record_placement(draft_id, path, s, e, cursor)
         cursor += e - s

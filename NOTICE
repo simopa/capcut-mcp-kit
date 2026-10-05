@@ -24,6 +24,8 @@ vectcut-api/
     pause detection, pause-free assembly with one shared media material, and
     subtitles generated from the transcript that follow the edit.
   - capcut_server.py: routes for the above; add_video records clip placement.
+  - camera_moves.py (new): virtual camera moves from keyframes (sampled on every
+    clip a move overlaps) and CapCut effects; /camera_moves and /add_camera_move.
   - save_draft_impl.py: media under ~/Movies is referenced in place (CapCut is
     sandboxed and can read that folder); a file used by many clips is copied once.
   - downloader.py: local files are cloned copy-on-write on macOS (APFS).
@@ -47,7 +49,8 @@ capcut-mcp-server/
     timeline placement and layering; project_name on save; CapCut font-size scale.
   - The bundled backend is started automatically (services/backend.ts).
   - Content-aware tools (tools/media.ts): capcut_transcribe, capcut_detect_pauses,
-    capcut_add_video_without_pauses, capcut_add_auto_subtitles.
+    capcut_add_video_without_pauses (with alternating punch-in), capcut_add_auto_subtitles,
+    capcut_add_camera_move.
 ------------------------------------------------------------------------
 
 Everything else in this repository (setup.sh, start-server.sh, README.md, docs/)
