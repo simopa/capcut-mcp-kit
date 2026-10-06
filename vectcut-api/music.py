@@ -119,7 +119,8 @@ def add_background_music(draft_id: str, audio_url: str, volume: float = 0.25, fa
 
 
 def timeline(draft_id: str) -> dict:
-    """The draft's tracks with where each one ends, to place new items after or over them."""
+    """The draft's tracks with where each one ends, to place new items after or over them, and its
+    saves that stopped halfway (pending, or left as they were in the last days)."""
     import draft_store
     rev, script = draft_store.current(draft_id)  # read together: the revision is the one shown
     tracks = []
@@ -129,7 +130,8 @@ def timeline(draft_id: str) -> dict:
         tracks.append({"name": name, "type": t.track_type.name, "clips": len(t.segments),
                        "end": round(max(s.target_timerange.end for s in t.segments) / 1e6, 3)})
     out = {"draft_id": draft_id, "revision": rev,
-           "duration": round(script.duration / 1e6, 3), "tracks": tracks}
+           "duration": round(script.duration / 1e6, 3), "tracks": tracks,
+           "unsettled_saves": draft_store.journal_unsettled(draft_id)}
     base = getattr(script, "base_project", None)
     if base:
         import json

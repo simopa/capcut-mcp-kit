@@ -95,7 +95,8 @@ CapCut drafts folder.
 - The draft cache holds (revision, draft) pairs and never goes back to an older revision; a created
   or opened draft is stored in the same transaction as its reply.
 - Media are versioned by content, and every copy put in a project is checked against it.
-- Save warnings appear in the Markdown reply too.
+- Save warnings appear in the Markdown reply too; `capcut_get_timeline` lists saves that stopped
+  halfway (pending, or left as they were) with what to do.
 
 ## Next
 

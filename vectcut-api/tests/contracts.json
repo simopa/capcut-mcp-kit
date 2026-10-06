@@ -598,6 +598,44 @@
           "additionalProperties": false
         }
       },
+      "unsettled_saves": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "abandoned"
+              ]
+            },
+            "kind": {
+              "type": "string"
+            },
+            "folders": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "started": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "kind",
+            "folders",
+            "started",
+            "note"
+          ],
+          "additionalProperties": false
+        }
+      },
       "existing_project": {
         "type": "object",
         "properties": {

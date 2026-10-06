@@ -306,7 +306,10 @@ Args:
     {
       title: 'Get Timeline',
       description: `List the draft's tracks with their clip count and where each one ends (and, for a draft
-from capcut_open_project, the existing project's tracks), to place new items after or over them.`,
+from capcut_open_project, the existing project's tracks), to place new items after or over them. Also lists
+the draft's saves that stopped halfway: pending (settled at the next change or start; the draft cannot be
+saved until then) or left as they were because the project changed since (the note says where the previous
+version is).`,
       inputSchema: z.object({ draft_id: z.string().min(1) }).strict(),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
@@ -321,6 +324,10 @@ from capcut_open_project, the existing project's tracks), to place new items aft
         if (t.existing_project) {
           out += `\n\n### Existing project "${t.existing_project.name}" (${t.existing_project.duration}s)\n` +
             t.existing_project.tracks.map(line).join('\n');
+        }
+        if (t.unsettled_saves?.length) {
+          out += `\n\n### Saves that stopped halfway\n` + t.unsettled_saves.map((u) =>
+            `- ${u.state} (${u.started}, ${u.folders.join(', ')}): ${u.note}`).join('\n');
         }
         return { content: [{ type: 'text' as const, text: out }], structuredContent: t };
       } catch (error) {

@@ -232,6 +232,7 @@ def test_a_crash_at_any_step_of_replacing_a_project_ends_old_or_new(env, client)
 
         assert notes == [], (n, notes)
         assert draft_store.journal_pending() == [], n
+        assert call(client, "/timeline", draft_id=d)["output"]["unsettled_saves"] == [], n
         assert hidden(env.projects) == [], (n, hidden(env.projects))
         texts = text_values(env.projects / name / "draft_info.json")
         assert texts in (["Old"], ["New", "Old"]), (n, texts)
@@ -328,10 +329,15 @@ def test_after_a_crash_an_edit_made_since_is_never_overwritten(env, client, monk
     notes = settle_after_restart()
     assert draft_store.journal_pending(d) and "CapCut" in notes[0]
     assert {rel: (root / rel).read_bytes() for rel in COPIES} == after_edit
+    shown = call(client, "/timeline", draft_id=d)["output"]["unsettled_saves"]
+    assert [(u["state"], u["kind"]) for u in shown] == [("pending", "existing")]
+    assert shown[0]["folders"] == [os.path.realpath(root)] and "cannot be saved" in shown[0]["note"]
 
     monkeypatch.setattr(sd, "capcut_is_running", lambda: False)
     notes = settle_after_restart()
     assert draft_store.journal_pending(d) == [] and "left as it is" in notes[0]
+    shown = call(client, "/timeline", draft_id=d)["output"]["unsettled_saves"]
+    assert [u["state"] for u in shown] == ["abandoned"] and shown[0]["note"] == notes[0]
     assert {rel: (root / rel).read_bytes() for rel in COPIES} == after_edit
     assert hidden(env.projects) == []
     out = call(client, "/save_draft", draft_id=d)  # and saving again does not either

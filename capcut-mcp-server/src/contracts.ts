@@ -127,11 +127,20 @@ export const MusicResult = DraftRefResult.extend({
 
 const TimelineTrack = z.object({ name: z.string(), type: z.string(), clips: z.number(), end: z.number() });
 
+const UnsettledSave = z.object({
+  state: z.enum(['pending', 'abandoned']),
+  kind: z.string(),
+  folders: z.array(z.string()),
+  started: z.string(),
+  note: z.string()
+});
+
 export const TimelineResult = z.object({
   draft_id: z.string(),
   revision: z.number(),
   duration: z.number(),
   tracks: z.array(TimelineTrack),
+  unsettled_saves: z.array(UnsettledSave).optional(),
   existing_project: z.object({
     name: z.string(),
     duration: z.number(),

@@ -368,6 +368,33 @@ def journal_pending(draft_id: str = None) -> list:
     return [(r[0], r[1], r[2], json.loads(r[3])) for r in rows]
 
 
+def journal_unsettled(draft_id: str) -> list:
+    """The saves of a draft that need the user's attention, oldest first: those still pending and
+    those abandoned in the last REPLY_DAYS days. Read under the draft's lock when any is pending,
+    so a save in progress is not reported as unfinished."""
+    def rows():
+        with _db() as conn:
+            return conn.execute("SELECT state, kind, details, created_at FROM operations WHERE draft_id = ? AND "
+                                "(state = 'pending' OR (state = 'abandoned' AND created_at >= ?)) ORDER BY created_at",
+                                (draft_id, time.time() - REPLY_DAYS * 86400)).fetchall()
+    found = rows()
+    if any(r[0] == "pending" for r in found):
+        with draft_lock(draft_id):
+            found = rows()
+    out = []
+    for state, kind, details, created_at in found:
+        details = json.loads(details)
+        if state == "pending":
+            note = ("A save of this draft stopped halfway and is not settled yet: it is settled at the next change of "
+                    "this draft or the next start of the backend (once CapCut is closed, if it has to undo "
+                    "something in CapCut's projects folder). The draft cannot be saved until then.")
+        else:
+            note = " ".join(details.get("notes") or ["A save of this draft stopped halfway and was left as it is."])
+        out.append({"state": state, "kind": kind, "folders": details.get("locks") or [],
+                    "started": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(created_at)), "note": note})
+    return out
+
+
 def committed_to_disk(op_id: str, summary: str):
     """Called once a change has written a project folder: its journal entry is closed together
     with the draft, and a failure from here on must not claim that nothing happened. Outside a

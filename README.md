@@ -178,7 +178,8 @@ Conventions:
   CapCut, a file someone else put there), it is left as it is and the reply says where the previous
   version is. Undoing anything in CapCut's projects folder waits until CapCut is known to be closed,
   and the draft cannot be saved again until then. Warnings (a backup that could not be moved, a save
-  left as it is) are in every reply format. CapCut is detected by process name, not by the project it
+  left as it is) are in every reply format, and `capcut_get_timeline` lists the draft's saves still
+  pending or left as they were in the last 7 days, with what to do. CapCut is detected by process name, not by the project it
   has open.
 - **Media are identified by content:** a local file is named after a hash of its content, so a file
   replaced at the same path, even with the same size and modification time, is a new material, and

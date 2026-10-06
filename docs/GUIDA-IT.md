@@ -65,7 +65,8 @@ quel draft (o al riavvio del kit) viene completato o annullato: il progetto, i s
 media restano tutti nella versione vecchia o tutti in quella nuova, mai a metà. Il kit tocca solo
 ciò che quel salvataggio aveva creato: se nel frattempo il progetto è cambiato (per esempio l'hai
 modificato in CapCut), lo lascia com'è e ti dice dove trovare la versione precedente. Se per
-annullare deve toccare la cartella dei progetti di CapCut, aspetta che CapCut sia chiuso.
+annullare deve toccare la cartella dei progetti di CapCut, aspetta che CapCut sia chiuso. `capcut_get_timeline`
+mostra i salvataggi rimasti a metà e cosa fare.
 
 Se hai modificato in CapCut un progetto creato dal kit, il kit non lo sovrascrive più ri-salvando il
 vecchio draft: lo rifiuta e chiede di aprirlo con `capcut_open_project` (oppure `overwrite: true`,
