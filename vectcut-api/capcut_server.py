@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; routes that change a draft are transactional (draft_store), create_draft and open_project idempotent with request_id; unfinished saves settled at startup; /open_project; list_projects flags real projects; /add_background_music, /timeline; auto_track; create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted; token required (kit_auth) except GET /health.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; routes that change a draft are transactional (draft_store), create_draft and open_project idempotent with request_id; unfinished saves settled at startup; /open_project; list_projects flags real projects and reads the same folder as open_project; /add_background_music, /timeline; auto_track; create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted; token required (kit_auth) except GET /health.
 # See NOTICE at the repository root.
 import requests
 import os
@@ -830,15 +830,9 @@ def query_script():
         return jsonify(result)
 
 def _get_capcut_desktop_projects_dir():
-    if os.name == 'nt':
-        p = os.path.expandvars(r"%LOCALAPPDATA%\CapCut\User Data\Projects\com.lveditor.draft")
-        if os.path.exists(p):
-            return p
-    else:
-        mac_p = os.path.expanduser('~/Library/Containers/com.lemon.lvpro/Data/Documents/JianyingPro/User Data/Projects/com.lveditor.draft')
-        if os.path.exists(mac_p):
-            return mac_p
-    return None
+    # The same folder capcut_open_project and saving use (it was only Jianying's on macOS)
+    import save_draft_impl
+    return save_draft_impl.find_capcut_projects_dir()
 
 @app.route('/save_draft', methods=['POST'])
 @transactional

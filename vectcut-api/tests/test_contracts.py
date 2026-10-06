@@ -82,7 +82,6 @@ def env(monkeypatch, tmp_path):
     projects = tmp_path / "projects"
     projects.mkdir()
     monkeypatch.setattr(save_draft_impl, "find_capcut_projects_dir", lambda: str(projects))
-    monkeypatch.setattr(capcut_server, "_get_capcut_desktop_projects_dir", lambda: str(projects))
     if not shutil.which("ffmpeg"):
         pytest.skip("ffmpeg not installed")
     clip, png = tmp_path / "clip.mp4", tmp_path / "logo.png"
