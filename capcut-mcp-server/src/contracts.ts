@@ -15,6 +15,7 @@ const MovedItem = z.object({
 export const DraftRefResult = z.object({
   draft_id: z.string(),
   draft_url: z.string(),
+  revision: z.number(),
   moved_to_free_track: z.array(MovedItem).optional()
 }).passthrough();
 
@@ -28,6 +29,7 @@ export const CreateDraftResult = z.object({
 
 export const SaveDraftResult = z.object({
   draft_url: z.string(),
+  revision: z.number(),
   backups: z.array(z.string()),
   added_tracks: z.number().optional()
 }).passthrough();
@@ -109,6 +111,7 @@ export const WithoutPausesResult = DraftRefResult.extend({
 
 export const AutoSubtitlesResult = z.object({
   draft_id: z.string(),
+  revision: z.number(),
   subtitles: z.number(),
   first: z.string()
 }).passthrough();
@@ -125,6 +128,7 @@ const TimelineTrack = z.object({ name: z.string(), type: z.string(), clips: z.nu
 
 export const TimelineResult = z.object({
   draft_id: z.string(),
+  revision: z.number(),
   duration: z.number(),
   tracks: z.array(TimelineTrack),
   existing_project: z.object({

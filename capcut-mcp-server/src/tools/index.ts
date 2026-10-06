@@ -451,7 +451,7 @@ moved to ~/Movies/CapCut MCP Backups, never deleted. Replacing a project is refu
     },
     async (params: SaveDraftInput) => {
       try {
-        const response = await apiClient.saveDraft(params.draft_id, params.project_name, params.overwrite);
+        const response = await apiClient.saveDraft(params.draft_id, params.project_name, params.overwrite, params.expected_revision);
 
         if (!response.success || !response.result) {
           throw new Error(response.error || 'Failed to save draft');

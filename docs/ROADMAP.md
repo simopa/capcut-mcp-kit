@@ -58,11 +58,12 @@ CapCut drafts folder.
   every reply is checked at runtime, and the backend's tests check their real replies against the
   same contracts, so the two sides cannot drift apart.
 
-## Next
-
 **Safe retries**
-- Optional request IDs so a retried call is not applied twice, and an expected revision so two
-  clients cannot overwrite each other's changes unknowingly.
+- Every change carries a request id: a lost reply is retried with the same id and applied once.
+- Replies report the draft's revision; `expected_revision` refuses a change if another client moved
+  the draft on. An old draft cannot replace a project edited in CapCut without `overwrite`.
+
+## Next
 
 **Editing clips already in a project**
 - Today an opened project can only receive new tracks. Changing its own clips (trim, keyframes,

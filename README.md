@@ -130,8 +130,9 @@ Conventions:
   backs up the whole project folder first. Existing clips cannot be edited this way.
 - **Saving** again under the same `project_name` replaces the project that draft saved before; the
   old folder is moved to `~/Movies/CapCut MCP Backups` (set `CAPCUT_MCP_BACKUP_DIR` to change it),
-  never deleted, and backups are not pruned. A project the draft did not save is replaced only with
-  `overwrite: true`. Replacing is refused while CapCut is open, because CapCut writes the project it
+  never deleted, and backups are not pruned. A project the draft did not save, or that was changed in
+  CapCut since the draft saved it, is replaced only with `overwrite: true` (to add to a project you
+  edited, use `capcut_open_project`). Replacing is refused while CapCut is open, because CapCut writes the project it
   holds back to disk when it closes; saving under a new name works with CapCut open.
 - **Color correction:** saturation/contrast/brightness keyframes with the same value at the clip's
   start and end act as a constant adjustment, still editable in CapCut.
@@ -143,6 +144,10 @@ Conventions:
   VectCutAPI does not render in CapCut 9.1. Use `capcut_add_image` with a PNG instead.
 - **Color filters** (CapCut's Filters panel) and in-app AI features (retouch, background removal,
   stabilization, auto captions) are not available.
+- **Retries are safe:** every change carries a request id, and if its reply is lost the MCP server
+  sends it once more with the same id; the backend returns the first reply instead of applying the
+  change twice. Replies report the draft's `revision`; `capcut_save_draft` accepts
+  `expected_revision` to save only if no other client changed the draft meanwhile.
 - **Drafts in progress** are kept in `~/Library/Application Support/capcut-mcp-kit/drafts.sqlite3`
   (set `CAPCUT_MCP_STATE_DIR` to move it), so they survive a backend restart. A change that fails
   leaves the draft as it was, and an unknown draft ID is an error rather than a new empty project.

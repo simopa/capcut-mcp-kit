@@ -408,7 +408,9 @@ export const SaveDraftSchema = z.object({
     .describe('Name shown in the CapCut projects list (defaults to the draft ID); cannot start with "." or contain / \\ :'),
   overwrite: z.boolean()
     .default(false)
-    .describe('Replace an existing project that was not saved from this draft (it is moved to backups)'),
+    .describe('Replace an existing project that was not saved from this draft, or was changed in CapCut since (it is moved to backups)'),
+  expected_revision: z.number().int().optional()
+    .describe('Save only if the draft is still at this revision (from the last reply or capcut_get_timeline)'),
   response_format: ResponseFormatSchema
 }).strict();
 

@@ -315,7 +315,7 @@ from capcut_open_project, the existing project's tracks), to place new items aft
         const t = r.result;
         const line = (x: { type: string | null; name: string; clips: number; end: number }) =>
           `- ${x.type} "${x.name}": ${x.clips} clip(s), ends at ${x.end}s`;
-        let out = `## Timeline (${t.duration}s)\n${t.tracks.map(line).join('\n') || '_empty_'}`;
+        let out = `## Timeline (${t.duration}s, revision ${t.revision})\n${t.tracks.map(line).join('\n') || '_empty_'}`;
         if (t.existing_project) {
           out += `\n\n### Existing project "${t.existing_project.name}" (${t.existing_project.duration}s)\n` +
             t.existing_project.tracks.map(line).join('\n');

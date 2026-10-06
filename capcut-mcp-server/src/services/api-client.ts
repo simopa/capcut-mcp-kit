@@ -1,6 +1,7 @@
 // API client for CapCut server communication. Modified in capcut-mcp-kit: typed requests, and every
 // reply is checked against its contract (contracts.ts).
 
+import { randomUUID } from 'node:crypto';
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from 'axios';
 import { API_BASE_URL } from '../constants.js';
 import { z } from 'zod';
@@ -12,6 +13,9 @@ import type {
 } from '../schemas/index.js';
 import { ensureBackend, forgetBackend } from './backend.js';
 import { readToken, TOKEN_HEADER } from './auth.js';
+
+/** The request reached the backend but no reply came back (dropped connection, timeout). */
+class NoReply extends Error {}
 
 /** What every VectCutAPI route answers. */
 interface BackendReply {
@@ -33,7 +37,7 @@ export class CapCutApiClient {
   constructor(baseURL: string = API_BASE_URL) {
     this.client = axios.create({
       baseURL,
-      timeout: 60000, // 60 seconds timeout
+      timeout: 300000, // saves that copy large media can take minutes
       headers: {
         'Content-Type': 'application/json',
       },
@@ -71,7 +75,7 @@ export class CapCutApiClient {
         } else if (error.request) {
           // Request made but no response: check (and restart) the backend on the next call
           forgetBackend();
-          throw new Error('CapCut API server is not responding. Please ensure the server is running.');
+          throw new NoReply('CapCut API server is not responding. Please ensure the server is running.');
         } else {
           // Error setting up request
           throw new Error(`Request error: ${error.message}`);
@@ -80,7 +84,9 @@ export class CapCutApiClient {
     );
   }
 
-  /** Calls the backend and checks its reply against `schema` (see contracts.ts). */
+  /** Calls the backend and checks its reply against `schema` (see contracts.ts). A POST carries a
+   *  request_id; if the reply is lost it is sent once more with the same id, and the backend returns
+   *  the first reply instead of applying the change twice. */
   async request<S extends z.ZodTypeAny>(
     endpoint: string,
     method: 'GET' | 'POST',
@@ -88,9 +94,17 @@ export class CapCutApiClient {
     schema: S
   ): Promise<ApiResponse<z.infer<S>>> {
     try {
-      await ensureBackend();
-      const config: AxiosRequestConfig = { method, url: endpoint, ...(data && { data }) };
-      const response = await this.client.request<BackendReply>(config);
+      const body = method === 'POST' ? { ...(data ?? {}), request_id: randomUUID() } : data;
+      const config: AxiosRequestConfig = { method, url: endpoint, ...(body && { data: body }) };
+      let response;
+      try {
+        await ensureBackend();
+        response = await this.client.request<BackendReply>(config);
+      } catch (error) {
+        if (!(error instanceof NoReply)) throw error;
+        await ensureBackend();
+        response = await this.client.request<BackendReply>(config);
+      }
       // VectCutAPI returns its payload in `output`
       const { success, output, error } = response.data;
       if (!success) return { success: false, error: error || `The backend reported a failure for ${endpoint}` };
@@ -165,8 +179,9 @@ export class CapCutApiClient {
     return this.request('/add_sticker', 'POST', this.mapPlacement(data), C.DraftRefResult);
   }
 
-  async saveDraft(draftId: string, projectName?: string, overwrite?: boolean) {
-    return this.request('/save_draft', 'POST', { draft_id: draftId, project_name: projectName, overwrite },
+  async saveDraft(draftId: string, projectName?: string, overwrite?: boolean, expectedRevision?: number) {
+    return this.request('/save_draft', 'POST',
+      { draft_id: draftId, project_name: projectName, overwrite, expected_revision: expectedRevision },
       C.SaveDraftResult);
   }
 

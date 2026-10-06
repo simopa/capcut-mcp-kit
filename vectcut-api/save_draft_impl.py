@@ -151,11 +151,25 @@ def move_to_backup(path):
     logger.info(f"Moved {path} to backup {dest}")
     return dest
 
-def read_kit_marker(folder):
+def _read_marker(folder) -> dict:
     try:
         with open(os.path.join(folder, KIT_MARKER), "r", encoding="utf-8") as f:
-            return json.load(f).get("draft_id")
-    except (OSError, ValueError, AttributeError):
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def read_kit_marker(folder):
+    return _read_marker(folder).get("draft_id")
+
+
+def _file_sha(path):
+    import hashlib
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
         return None
 
 def read_meta(folder):
@@ -165,9 +179,10 @@ def read_meta(folder):
     except (OSError, ValueError):
         return None
 
-def check_replace(target, draft_id, overwrite, in_capcut):
-    """Refuse to replace a folder this draft did not save (unless overwrite), and any CapCut
-    project while CapCut is open: it keeps the project in memory and writes it back on close."""
+def check_replace(target, draft_id, overwrite, in_capcut, content_file="draft_info.json"):
+    """Refuse to replace a folder this draft did not save, or that was changed in CapCut since this
+    draft saved it (unless overwrite), and any CapCut project while CapCut is open: it keeps the
+    project in memory and writes it back on close."""
     if not os.path.lexists(target):
         return
     name = os.path.basename(target)
@@ -178,6 +193,13 @@ def check_replace(target, draft_id, overwrite, in_capcut):
             f"A project named '{name}' already exists and was not saved from this draft. "
             f"Choose another project_name, or pass overwrite=true to replace it "
             f"(the old folder is moved to {backup_root()}, not deleted).")
+    marker = _read_marker(target)
+    if marker.get("draft_id") == draft_id and marker.get("content_sha") and not overwrite \
+            and _file_sha(os.path.join(target, content_file)) != marker["content_sha"]:
+        raise SaveDraftError(
+            f"'{name}' was changed in CapCut after this draft saved it: saving the draft again would replace "
+            f"those changes. Open it with capcut_open_project to add to it, or pass overwrite=true to replace "
+            f"it anyway (the edited version is moved to {backup_root()}, not deleted).")
     if in_capcut and capcut_is_running():
         raise SaveDraftError(
             f"CapCut is open: quit CapCut before replacing '{name}', otherwise it writes its own "
@@ -194,9 +216,10 @@ def commit_dir(stage_dir, target):
         raise
     return backup
 
-def write_kit_marker(folder, draft_id):
+def write_kit_marker(folder, draft_id, content_file="draft_info.json"):
+    """Record which draft wrote this folder and the timeline it wrote, to notice later edits in CapCut."""
     with open(os.path.join(folder, KIT_MARKER), "w", encoding="utf-8") as f:
-        json.dump({"draft_id": draft_id}, f)
+        json.dump({"draft_id": draft_id, "content_sha": _file_sha(os.path.join(folder, content_file))}, f)
 
 def copy_assets(script, task_id, path_base, path_name, dest_root):
     """Point every media material at <path_base>/<path_name>/assets/<type>/<name> (where it will be
@@ -302,9 +325,10 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
             deploy_dir = child_dir(capcut_projects_dir, project_name or draft_id)
 
         # Refuse before writing anything
-        check_replace(draft_dir, draft_id, overwrite, in_capcut=in_place)
+        content_file = get_draft_profile().content_file
+        check_replace(draft_dir, draft_id, overwrite, in_capcut=in_place, content_file=content_file)
         if deploy_dir:
-            check_replace(deploy_dir, draft_id, overwrite, in_capcut=True)
+            check_replace(deploy_dir, draft_id, overwrite, in_capcut=True, content_file=content_file)
 
         draft_profile = get_draft_profile()
         template_source_dir = os.path.join(current_dir, draft_profile.template_dir)
@@ -324,7 +348,7 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
         update_task_fields(task_id, message="Saving draft information", progress=70)
         written_files = write_profile_content(draft_profile, stage_dir, script.dumps(draft_profile))
         logger.info(f"Draft information has been saved to {[str(path) for path in written_files]}.")
-        write_kit_marker(stage_dir, draft_id)
+        write_kit_marker(stage_dir, draft_id, draft_profile.content_file)
         if in_place:
             previous = read_meta(draft_dir) if read_kit_marker(draft_dir) == draft_id else None
             fix_draft_meta(stage_dir, draft_dir, project_name or draft_id, script.duration, previous)

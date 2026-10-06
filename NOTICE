@@ -67,6 +67,9 @@ vectcut-api/
     camera_moves.py and the MCP server.
   - media_analysis.py, capcut_server.py: /transcribe can return one page of blocks
     (no word timings) instead of the whole transcript.
+  - draft_store.py: request ids (a retry returns the first reply), revisions in every
+    reply, expected_revision. save_draft_impl.py: the kit marker records the timeline
+    it wrote; a project changed in CapCut since then is not replaced without overwrite.
   - kit_auth.py (new), capcut_server.py: GET /health identifies the backend; every
     other request needs the shared token. settings/local.py: CAPCUT_PORT override.
   - downloader.py: remote downloads are http(s) only, size-capped, never left
@@ -77,7 +80,7 @@ vectcut-api/
     tests/test_save_draft_safety.py, test_media_analysis.py, test_no_false_success.py,
     test_draft_store.py, test_existing_project.py, test_camera_moves.py,
     test_downloader.py, test_placement_and_music.py, test_catalog_and_paging.py,
-    test_contracts.py (new).
+    test_contracts.py, test_safe_retries.py (new).
   - pyJianYingDraft/script_file.py: import_srt crashed when no font was given.
   - The upstream mcp-server/ folder (a copy of the project below) is not included.
 
@@ -107,6 +110,8 @@ capcut-mcp-server/
   - services/backend.ts: the autostart checks the backend's identity and API version,
     takes a start lock shared by all clients, re-checks after a lost connection, and
     passes the port; services/auth.ts sends the shared token. Node tests in test/.
+  - Every POST carries a request_id and is sent once more with it if the reply is lost;
+    300 s request timeout; expected_revision on capcut_save_draft.
   - contracts.ts (new): the backend's replies as zod schemas; requests are typed from
     the tool schemas and every reply is checked (a mismatch is an error); markdown
     replies are formatted per tool (add_* replies were shown as "Draft Created").

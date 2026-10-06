@@ -134,7 +134,9 @@ def timeline(draft_id: str) -> dict:
             continue
         tracks.append({"name": name, "type": t.track_type.name, "clips": len(t.segments),
                        "end": round(max(s.target_timerange.end for s in t.segments) / 1e6, 3)})
-    out = {"draft_id": draft_id, "duration": round(script.duration / 1e6, 3), "tracks": tracks}
+    import draft_store
+    out = {"draft_id": draft_id, "revision": draft_store.revision(draft_id),
+           "duration": round(script.duration / 1e6, 3), "tracks": tracks}
     base = getattr(script, "base_project", None)
     if base:
         import json

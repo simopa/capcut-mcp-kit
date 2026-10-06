@@ -7,6 +7,10 @@ Every draft lives in memory (draft_cache.DRAFT_CACHE) and, after each successful
 SQLite file as a pickled Script_file (pending keyframes included). After a restart a draft is
 loaded back on first use. A change runs under the draft's lock on a snapshot: if it fails, the
 draft goes back to exactly what it was.
+
+Each successful change bumps the draft's revision, reported in the reply. A change may carry:
+- request_id: the same id again (a retry) returns the first reply without applying it twice;
+- expected_revision: the change is refused if the draft has moved on (another client changed it).
 """
 
 import json
@@ -46,7 +50,45 @@ def _connect() -> sqlite3.Connection:
     conn.execute("""CREATE TABLE IF NOT EXISTS drafts (
         draft_id TEXT PRIMARY KEY, format INTEGER NOT NULL, revision INTEGER NOT NULL,
         updated_at REAL NOT NULL, data BLOB NOT NULL)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS requests (
+        draft_id TEXT NOT NULL, request_id TEXT NOT NULL, reply TEXT NOT NULL, created_at REAL NOT NULL,
+        PRIMARY KEY (draft_id, request_id))""")
     return conn
+
+
+KEEP_REPLIES = 200  # per draft
+
+
+def revision(draft_id: str) -> int:
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT revision FROM drafts WHERE draft_id = ?", (draft_id,)).fetchone()
+        return row[0] if row else 0
+    finally:
+        conn.close()
+
+
+def remembered_reply(draft_id: str, request_id: str):
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT reply FROM requests WHERE draft_id = ? AND request_id = ?",
+                           (draft_id, request_id)).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def remember_reply(draft_id: str, request_id: str, reply: str):
+    conn = _connect()
+    try:
+        with conn:
+            conn.execute("INSERT OR REPLACE INTO requests (draft_id, request_id, reply, created_at) VALUES (?, ?, ?, ?)",
+                         (draft_id, request_id, reply, time.time()))
+            conn.execute("""DELETE FROM requests WHERE draft_id = ? AND request_id NOT IN (
+                SELECT request_id FROM requests WHERE draft_id = ? ORDER BY created_at DESC LIMIT ?)""",
+                         (draft_id, draft_id, KEEP_REPLIES))
+    finally:
+        conn.close()
 
 
 def persist(draft_id: str, script) -> int:
@@ -110,15 +152,17 @@ def _succeeded(response) -> bool:
     return isinstance(body, dict) and body.get("success") is True
 
 
-def _report_moves(response, moved):
-    """Add {"moved_to_free_track": [...]} to a successful reply when items changed track."""
-    if not moved:
-        return
+def _amend_reply(response, moved, new_revision) -> str:
+    """Add the draft's new revision (and the items moved to a free track) to a successful reply.
+    Returns the reply body, which is what a retry with the same request_id gets back."""
     resp = response[0] if isinstance(response, tuple) else response
     body = resp.get_json(silent=True)
     if isinstance(body, dict) and isinstance(body.get("output"), dict):
-        body["output"]["moved_to_free_track"] = moved
+        body["output"]["revision"] = new_revision
+        if moved:
+            body["output"]["moved_to_free_track"] = moved
         resp.set_data(json.dumps(body))
+    return resp.get_data(as_text=True)
 
 
 def transactional(view):
@@ -134,18 +178,34 @@ def transactional(view):
             return jsonify({"success": False, "output": "",
                             "error": "draft_id is required: create a draft with capcut_create_draft first"})
         import placement
+        from flask import Response
+        request_id = data.get("request_id")
+        request_id = str(request_id) if request_id not in (None, "") else None
+        expected = data.get("expected_revision")
         with draft_lock(draft_id):
+            if request_id:
+                earlier = remembered_reply(draft_id, request_id)
+                if earlier is not None:  # a retry: this change was already applied
+                    return Response(earlier, mimetype="application/json")
             try:
                 snapshot = pickle.dumps(get_draft(draft_id), protocol=pickle.HIGHEST_PROTOCOL)
             except DraftNotFound as e:
                 return jsonify({"success": False, "output": "", "error": str(e)})
+            if expected is not None:
+                current = revision(draft_id)
+                if not isinstance(expected, int) or isinstance(expected, bool) or expected != current:
+                    return jsonify({"success": False, "output": "", "error":
+                                    f"Draft {draft_id} is at revision {current}, not {expected!r}: another call "
+                                    f"changed it meanwhile. Check it (capcut_get_timeline) and try again."})
             auto = placement.AUTO_TRACK.set(data.get("auto_track", True) is not False)
             moved = placement.MOVED.set([])
             try:
                 response = view(*args, **kwargs)
                 if _succeeded(response):
-                    persist(draft_id, DRAFT_CACHE[draft_id])
-                    _report_moves(response, placement.MOVED.get())
+                    new_revision = persist(draft_id, DRAFT_CACHE[draft_id])
+                    reply = _amend_reply(response, placement.MOVED.get(), new_revision)
+                    if request_id:
+                        remember_reply(draft_id, request_id, reply)
                     return response
             except Exception as e:
                 update_cache(draft_id, pickle.loads(snapshot))

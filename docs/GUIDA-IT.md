@@ -61,6 +61,10 @@ timeline originale identica più le aggiunte, in tutte le copie che CapCut tiene
 backup dell'intera cartella del progetto in `~/Movies/CapCut MCP Backups`. **Chiudi CapCut prima di
 salvare**; se nel frattempo hai modificato il progetto in CapCut, va riaperto.
 
+Se hai modificato in CapCut un progetto creato dal kit, il kit non lo sovrascrive più ri-salvando il
+vecchio draft: lo rifiuta e chiede di aprirlo con `capcut_open_project` (oppure `overwrite: true`,
+e la tua versione finisce comunque nei backup).
+
 ## Cosa sapere
 
 - L'assistente non vede né sente il video: conosce durata e dimensioni, quindi taglia per tempi.

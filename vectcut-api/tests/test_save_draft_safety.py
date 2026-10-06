@@ -71,7 +71,10 @@ def test_new_project_is_saved_with_marker_and_meta(env):
 
     target = env.projects / "Mio video"
     assert result == {"success": True, "draft_url": str(target), "backups": []}
-    assert json.loads((target / ".capcut_mcp_kit.json").read_text()) == {"draft_id": "safety-new"}
+    import hashlib
+    marker = json.loads((target / ".capcut_mcp_kit.json").read_text())
+    assert marker == {"draft_id": "safety-new",
+                      "content_sha": hashlib.sha256((target / "draft_info.json").read_bytes()).hexdigest()}
     meta = json.loads((target / "draft_meta_info.json").read_text())
     assert meta["draft_name"] == "Mio video"
     assert meta["draft_fold_path"] == str(target)

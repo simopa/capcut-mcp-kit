@@ -8,6 +8,9 @@
       "draft_url": {
         "type": "string"
       },
+      "revision": {
+        "type": "number"
+      },
       "moved_to_free_track": {
         "type": "array",
         "items": {
@@ -34,7 +37,8 @@
     },
     "required": [
       "draft_id",
-      "draft_url"
+      "draft_url",
+      "revision"
     ],
     "additionalProperties": true
   },
@@ -72,6 +76,9 @@
       "draft_url": {
         "type": "string"
       },
+      "revision": {
+        "type": "number"
+      },
       "backups": {
         "type": "array",
         "items": {
@@ -84,6 +91,7 @@
     },
     "required": [
       "draft_url",
+      "revision",
       "backups"
     ],
     "additionalProperties": true
@@ -392,6 +400,9 @@
       "draft_url": {
         "type": "string"
       },
+      "revision": {
+        "type": "number"
+      },
       "moved_to_free_track": {
         "type": "array",
         "items": {
@@ -444,6 +455,7 @@
     "required": [
       "draft_id",
       "draft_url",
+      "revision",
       "method",
       "segments",
       "cuts",
@@ -460,6 +472,9 @@
       "draft_id": {
         "type": "string"
       },
+      "revision": {
+        "type": "number"
+      },
       "subtitles": {
         "type": "number"
       },
@@ -469,6 +484,7 @@
     },
     "required": [
       "draft_id",
+      "revision",
       "subtitles",
       "first"
     ],
@@ -482,6 +498,9 @@
       },
       "draft_url": {
         "type": "string"
+      },
+      "revision": {
+        "type": "number"
       },
       "moved_to_free_track": {
         "type": "array",
@@ -525,6 +544,7 @@
     "required": [
       "draft_id",
       "draft_url",
+      "revision",
       "track",
       "pieces",
       "start",
@@ -538,6 +558,9 @@
     "properties": {
       "draft_id": {
         "type": "string"
+      },
+      "revision": {
+        "type": "number"
       },
       "duration": {
         "type": "number"
@@ -619,6 +642,7 @@
     },
     "required": [
       "draft_id",
+      "revision",
       "duration",
       "tracks"
     ],
@@ -632,6 +656,9 @@
       },
       "draft_url": {
         "type": "string"
+      },
+      "revision": {
+        "type": "number"
       },
       "moved_to_free_track": {
         "type": "array",
@@ -681,6 +708,7 @@
     "required": [
       "draft_id",
       "draft_url",
+      "revision",
       "move",
       "kind",
       "clips"
