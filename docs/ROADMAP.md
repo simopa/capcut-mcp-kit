@@ -20,13 +20,17 @@ CapCut drafts folder.
   atomically; a transcript deleted or invalidated is redone; one Whisper run at a time.
 - Unknown animation or audio effect names, keyframes outside any clip and unsupported fps are errors.
 
+**Reliable state**
+- An unknown draft ID is an error, never a new empty draft.
+- Drafts are stored in SQLite and survive a backend restart, pending keyframes included.
+- One lock per draft; a change that fails leaves the draft exactly as it was.
+- Subtitles are placed by reading the clips on the timeline (repeats and speed included).
+
 ## Next
 
-**Reliable state**
-- Separate "get" from "create": an unknown draft ID is an error, never a new empty draft.
-- Drafts persisted (SQLite) so they survive a backend restart.
-- One lock per draft; multi-step operations validated before anything changes; safe retries.
-- The source-to-timeline map is derived from the clips on the timeline, with track and clip identity.
+**Safe retries**
+- Optional request IDs so a retried call is not applied twice, and an expected revision so two
+  clients cannot overwrite each other's changes unknowingly.
 
 **Editing existing projects**
 - A conservative adapter for projects made in CapCut: load and save with no changes must give back

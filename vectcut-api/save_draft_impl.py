@@ -6,7 +6,7 @@ import shutil
 from util import zip_draft, build_draft_asset_path
 from oss import upload_to_oss
 from typing import Dict, Literal
-from draft_cache import DRAFT_CACHE
+from draft_store import get_draft, DraftNotFound
 from save_task_cache import DRAFT_TASKS, get_task_status, update_tasks_cache, update_task_field, increment_task_field, update_task_fields, create_task
 from downloader import download_audio, download_file, download_image, download_video
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -207,10 +207,10 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
         validate_folder_name(draft_id, "draft_id")
         if project_name:
             project_name = validate_folder_name(project_name)
-        if draft_id not in DRAFT_CACHE:
-            raise SaveDraftError(f"Draft {draft_id} not found (drafts live in memory and are lost when "
-                                 f"the backend restarts): create a new draft.")
-        script = DRAFT_CACHE[draft_id]
+        try:
+            script = get_draft(draft_id)
+        except DraftNotFound as e:
+            raise SaveDraftError(str(e))
 
         update_task_fields(task_id, status="processing", message="Preparing draft files", progress=0)
 
@@ -630,13 +630,11 @@ def query_script_impl(draft_id: str, force_update: bool = True):
     :param force_update: Whether to force refresh media metadata, default is True
     :return: Script object
     """
-    # Get draft information from global cache
-    if draft_id not in DRAFT_CACHE:
-        logger.warning(f"Draft {draft_id} does not exist in cache.")
+    try:
+        script = get_draft(draft_id)
+    except DraftNotFound:
+        logger.warning(f"Draft {draft_id} not found.")
         return None
-        
-    script = DRAFT_CACHE[draft_id]
-    logger.info(f"Retrieved draft {draft_id} from cache.")
     
     # If force_update is True, force refresh media metadata
     if force_update:

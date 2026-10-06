@@ -119,8 +119,9 @@ Conventions:
   VectCutAPI does not render in CapCut 9.1. Use `capcut_add_image` with a PNG instead.
 - **Color filters** (CapCut's Filters panel) and in-app AI features (retouch, background removal,
   stabilization, auto captions) are not available.
-- **Drafts live in the backend's memory**: if the backend restarts, a draft not yet saved is lost and
-  its ID is no longer valid.
+- **Drafts in progress** are kept in `~/Library/Application Support/capcut-mcp-kit/drafts.sqlite3`
+  (set `CAPCUT_MCP_STATE_DIR` to move it), so they survive a backend restart. A change that fails
+  leaves the draft as it was, and an unknown draft ID is an error rather than a new empty project.
 - The backend listens on 127.0.0.1 only and refuses requests from web pages. VectCutAPI's web
   preview is off; `CAPCUT_ENABLE_PREVIEW=1` turns it back on (it serves local files by path).
 - The draft format is CapCut's `capcut_legacy` profile. A future CapCut version could change it.

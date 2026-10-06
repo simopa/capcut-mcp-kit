@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; add_video records clip placement; create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; routes that change a draft are transactional (draft_store); create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted.
 # See NOTICE at the repository root.
 import requests
 import os
@@ -41,6 +41,7 @@ from pyJianYingDraft.text_segment import TextStyleRange, Text_style, Text_border
 
 from settings.local import IS_CAPCUT_ENV, DRAFT_DOMAIN, PREVIEW_ROUTER, PORT
 from web_preview import preview_bp, broadcast_draft_update
+from draft_store import transactional
 from web_preview import reload_capcut_desktop  # falls back to a stub off Windows
 
 app = Flask(__name__)
@@ -66,6 +67,7 @@ def only_loopback_callers():
 
  
 @app.route('/add_video', methods=['POST'])
+@transactional
 def add_video():
     data = request.get_json()
     # Get required parameters
@@ -149,9 +151,6 @@ def add_video():
         )
         
         broadcast_draft_update(draft_id=draft_id, action="add_video")
-        if end and os.path.isfile(os.path.expanduser(str(video_url))):
-            # Remember the placement so auto subtitles can follow this clip
-            media_analysis.record_placement(draft_result["draft_id"], video_url, start, end, target_start, speed)
         result["success"] = True
         result["output"] = draft_result
         return jsonify(result)
@@ -162,6 +161,7 @@ def add_video():
         return jsonify(result)
 
 @app.route('/add_audio', methods=['POST'])
+@transactional
 def add_audio():
     data = request.get_json()
     
@@ -288,6 +288,7 @@ def get_duration_service():
         })
         
 @app.route('/add_subtitle', methods=['POST'])
+@transactional
 def add_subtitle():
     data = request.get_json()
     
@@ -380,6 +381,7 @@ def add_subtitle():
         return jsonify(result)
 
 @app.route('/add_text', methods=['POST'])
+@transactional
 def add_text():
     data = request.get_json()
     
@@ -569,6 +571,7 @@ def add_text():
         return jsonify(result)
 
 @app.route('/add_image', methods=['POST'])
+@transactional
 def add_image():
     data = request.get_json()
     
@@ -671,6 +674,7 @@ def add_image():
         return jsonify(result)
 
 @app.route('/add_video_keyframe', methods=['POST'])
+@transactional
 def add_video_keyframe():
     data = request.get_json()
     
@@ -717,6 +721,7 @@ def add_video_keyframe():
         return jsonify(result)
 
 @app.route('/add_effect', methods=['POST'])
+@transactional
 def add_effect():
     data = request.get_json()
     
@@ -767,6 +772,7 @@ def add_effect():
         return jsonify(result)
 
 @app.route('/query_script', methods=['POST'])
+@transactional
 def query_script():
     data = request.get_json()
 
@@ -819,6 +825,7 @@ def _get_capcut_desktop_projects_dir():
     return None
 
 @app.route('/save_draft', methods=['POST'])
+@transactional
 def save_draft():
     data = request.get_json() or {}
     
@@ -1020,6 +1027,7 @@ def generate_draft_url():
         return jsonify(result)
 
 @app.route('/add_sticker', methods=['POST'])
+@transactional
 def add_sticker():
     data = request.get_json()
     # Get required parameters
@@ -1645,6 +1653,7 @@ def detect_pauses():
 
 
 @app.route('/add_video_without_pauses', methods=['POST'])
+@transactional
 def add_video_without_pauses():
     def run(d):
         out = media_analysis.add_video_without_pauses(
@@ -1661,6 +1670,7 @@ def add_video_without_pauses():
 
 
 @app.route('/add_auto_subtitles', methods=['POST'])
+@transactional
 def add_auto_subtitles():
     def run(d):
         words = media_analysis.timeline_words(d["draft_id"], d["video_url"])
@@ -1689,6 +1699,7 @@ def camera_moves_list():
 
 
 @app.route('/add_camera_move', methods=['POST'])
+@transactional
 def add_camera_move():
     return _media_route(lambda d: camera_moves.add_camera_move(
         d["draft_id"], d["move"], float(d["start"]), float(d["end"]),

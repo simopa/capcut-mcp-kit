@@ -9,8 +9,8 @@ Media analysis for content-aware editing.
   transcribed once and its files stay together.
 - Pauses come from the transcript's word timings when available (robust to background noise),
   otherwise from ffmpeg's silencedetect.
-- Every video placed on the timeline is recorded in a per-draft time map, so subtitles generated
-  from the source transcript land at the right timeline positions even after cuts.
+- Subtitles generated from the source transcript are placed by reading the draft's own clips
+  (source range, timeline position, speed), so they land right even after cuts and repeats.
 """
 
 import hashlib
@@ -27,6 +27,7 @@ from typing import Dict, List, Optional, Tuple
 import pyJianYingDraft as draft
 from pyJianYingDraft import trange, Clip_settings
 from create_draft import get_or_create_draft
+from draft_store import get_draft
 from util import generate_draft_url, url_to_hash
 
 # Used only when the video's own folder is not writable
@@ -38,9 +39,6 @@ MODELS = {
     "large": ("mlx-community/whisper-large-v3-mlx", "large-v3"),
     "small": ("mlx-community/whisper-small-mlx", "small"),
 }
-
-# draft_id -> list of {"src", "src_start", "src_end", "tl_start", "speed"}
-DRAFT_TIMEMAPS: Dict[str, List[dict]] = {}
 
 _jobs: Dict[str, dict] = {}
 _jobs_lock = threading.Lock()
@@ -361,14 +359,24 @@ def speech_ranges(path: str, start: float = 0, end: Optional[float] = None, min_
 
 # ---------------------------------------------------------------- timeline
 
-def record_placement(draft_id: str, src: str, src_start: float, src_end: float, tl_start: float, speed: float = 1.0):
-    """Remember where a source range sits on the timeline (used to place auto subtitles)."""
-    try:
-        src = os.path.abspath(os.path.expanduser(src))
-    except Exception:
-        pass
-    DRAFT_TIMEMAPS.setdefault(draft_id, []).append(
-        {"src": src, "src_start": src_start, "src_end": src_end, "tl_start": tl_start, "speed": speed or 1.0})
+def placements(script, path: str) -> List[dict]:
+    """Where `path` sits on the draft's timeline: one entry per clip (video or audio) that uses it."""
+    target = os.path.realpath(path)
+    materials = {m.material_id: m for m in list(script.materials.videos) + list(script.materials.audios)}
+    out = []
+    for track in script.tracks.values():
+        for seg in track.segments:
+            material = materials.get(getattr(seg, "material_id", None))
+            if material is None or not getattr(material, "remote_url", None):
+                continue
+            if os.path.realpath(os.path.expanduser(str(material.remote_url))) != target:
+                continue
+            speed = getattr(getattr(seg, "speed", None), "speed", 1.0) or 1.0
+            src_start = seg.source_timerange.start / 1e6
+            out.append({"track": track.name, "segment_id": seg.segment_id,
+                        "src_start": src_start, "src_end": src_start + seg.source_timerange.duration / 1e6,
+                        "tl_start": seg.target_timerange.start / 1e6, "speed": speed})
+    return out
 
 
 def add_video_without_pauses(draft_id: Optional[str], video_url: str, start: float = 0, end: Optional[float] = None,
@@ -396,7 +404,6 @@ def add_video_without_pauses(draft_id: Optional[str], video_url: str, start: flo
                                   source_timerange=trange(f"{s}s", f"{e - s}s"),
                                   clip_settings=Clip_settings(scale_x=zoom, scale_y=zoom), volume=volume)
         script.add_segment(seg, track_name=track_name)
-        record_placement(draft_id, path, s, e, cursor)
         cursor += e - s
 
     return {"draft_id": draft_id, "draft_url": generate_draft_url(draft_id),
@@ -422,15 +429,15 @@ def timeline_words(draft_id: str, path: str) -> List[dict]:
     transcript = load_cached(path)
     if transcript is None:
         raise RuntimeError("No transcript for this file yet: run capcut_transcribe first")
-    placements = [p for p in DRAFT_TIMEMAPS.get(draft_id, []) if p["src"] == path]
-    if not placements:
-        raise RuntimeError("This video is not on the draft's timeline (add it with capcut_add_video or "
-                           "capcut_add_video_without_pauses in this backend session first)")
+    placed = placements(get_draft(draft_id), path)
+    if not placed:
+        raise RuntimeError("This video is not on the draft's timeline: add it with capcut_add_video or "
+                           "capcut_add_video_without_pauses first")
     out = []
     for seg in transcript["segments"]:
         for w in seg["words"]:
             mid = (w["start"] + w["end"]) / 2
-            for p in placements:
+            for p in placed:
                 if p["src_start"] <= mid < p["src_end"]:
                     ws = max(w["start"], p["src_start"])
                     we = min(w["end"], p["src_end"])

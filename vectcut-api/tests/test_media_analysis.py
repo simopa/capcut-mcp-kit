@@ -70,18 +70,40 @@ def test_many_random_words_never_overlap():
 
 # ---------------------------------------------------------------- timeline words
 
+def place_twice(path):
+    """A draft whose timeline uses source 0-2 s of `path` at 0 s and again at 5 s."""
+    import pyJianYingDraft as draft
+    from pyJianYingDraft import trange
+    from create_draft import create_draft
+    script, draft_id = create_draft()
+    script.add_track(draft.Track_type.video, track_name="main")
+    material = draft.Video_material(material_type="video", remote_url=str(path), material_name="talk.mp4",
+                                    duration=10, width=0, height=0)
+    for at in (0, 5):
+        script.add_segment(draft.Video_segment(material, target_timerange=trange(f"{at}s", "2s"),
+                                               source_timerange=trange("0s", "2s")), track_name="main")
+    return draft_id
+
+
 def test_repeated_source_range_yields_words_twice(tmp_path, monkeypatch):
     video = tmp_path / "talk.mp4"
     video.write_bytes(b"x")
     transcript = {"segments": [{"words": [{"word": "ciao", "start": 1.0, "end": 1.5}]}]}
     monkeypatch.setattr(ma, "load_cached", lambda path, *a: transcript)
-    monkeypatch.setitem(ma.DRAFT_TIMEMAPS, "d-repeat", [])
-    ma.record_placement("d-repeat", str(video), 0, 2, 0)
-    ma.record_placement("d-repeat", str(video), 0, 2, 5)
+    draft_id = place_twice(video)
 
-    words = ma.timeline_words("d-repeat", str(video))
+    words = ma.timeline_words(draft_id, str(video))
 
     assert [w["start"] for w in words] == [1.0, 6.0]
+
+
+def test_placements_come_from_the_clips_on_the_timeline(tmp_path):
+    video = tmp_path / "talk.mp4"
+    video.write_bytes(b"x")
+    from draft_store import get_draft
+    placed = ma.placements(get_draft(place_twice(video)), str(video))
+    assert [(p["tl_start"], p["src_start"], p["src_end"]) for p in placed] == [(0, 0, 2), (5, 0, 2)]
+    assert len({p["segment_id"] for p in placed}) == 2
 
 
 # ---------------------------------------------------------------- pauses

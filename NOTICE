@@ -41,10 +41,17 @@ vectcut-api/
     pending keyframes that cannot be applied raise instead of being dropped.
   - create_draft.py, capcut_server.py: the requested fps (24/25/30/50/60) is applied
     and returned with the size (it was ignored).
+  - draft_store.py (new), create_draft.py, capcut_server.py, save_draft_impl.py: drafts
+    are stored in SQLite and survive a restart; routes that change a draft run under
+    a per-draft lock and roll back on failure; an unknown draft_id is an error (no
+    more implicit creation).
+  - media_analysis.py: subtitles are placed from the clips on the timeline instead
+    of an in-memory list.
   - capcut_server.py: the web preview routes are off unless CAPCUT_ENABLE_PREVIEW=1;
     requests with a non-loopback Host or Origin are refused.
   - tests/test_save_draft_local_paths.py: never writes into the real CapCut folder;
-    tests/test_save_draft_safety.py, test_media_analysis.py, test_no_false_success.py (new).
+    tests/test_save_draft_safety.py, test_media_analysis.py, test_no_false_success.py,
+    test_draft_store.py (new).
   - pyJianYingDraft/script_file.py: import_srt crashed when no font was given.
   - The upstream mcp-server/ folder (a copy of the project below) is not included.
 

@@ -1,9 +1,10 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: the requested fps is applied (it was ignored).
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: the requested fps is applied (it was ignored); drafts are persisted; get_or_create_draft no longer creates.
 # See NOTICE at the repository root.
 import uuid
 import pyJianYingDraft as draft
 import time
 from draft_cache import DRAFT_CACHE, update_cache
+from draft_store import get_draft, persist
 
 # Frame rates CapCut offers for a project
 SUPPORTED_FPS = (24, 25, 30, 50, 60)
@@ -25,33 +26,17 @@ def create_draft(width=1080, height=1920, fps=30):
     # Create CapCut draft with specified resolution
     script = draft.Script_file(width, height, fps)
     
-    # Store in global cache
+    # Store in global cache and on disk
     update_cache(draft_id, script)
+    persist(draft_id, script)
     
     return script, draft_id
 
 def get_or_create_draft(draft_id=None, width=1080, height=1920):
     """
-    Get or create CapCut draft
-    :param draft_id: Draft ID, if None or corresponding zip file not found, create new draft
-    :param width: Video width, default 1080
-    :param height: Video height, default 1920
-    :return: (draft_name, draft_path, draft_id, draft_dir, script)
+    Get an existing CapCut draft (kept under this name for the upstream call sites).
+    It no longer creates one: a missing or unknown draft_id raises draft_store.DraftNotFound, so a
+    stale ID cannot silently start an empty project. width/height are ignored.
+    :return: (draft_id, script)
     """
-    global DRAFT_CACHE  # Declare use of global variable
-    
-    if draft_id is not None and draft_id in DRAFT_CACHE:
-        # Get existing draft information from cache
-        print(f"Getting draft from cache: {draft_id}")
-        # Update last access time
-        update_cache(draft_id, DRAFT_CACHE[draft_id])
-        return draft_id, DRAFT_CACHE[draft_id]
-
-    # Create new draft logic
-    print("Creating new draft")
-    script, generate_draft_id = create_draft(
-        width=width,
-        height=height,
-    )
-    return generate_draft_id, script
-    
+    return draft_id, get_draft(draft_id)
