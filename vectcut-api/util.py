@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows asset paths built off Windows no longer double the drive separator.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows asset paths built off Windows no longer double the drive separator; material names of local files depend on the file's version.
 # See NOTICE at the repository root.
 import shutil
 import subprocess
@@ -53,23 +53,30 @@ def zip_draft(draft_id):
 
 def url_to_hash(url, length=16):
     """
-    Convert URL to a fixed-length hash string (without extension)
-    
-    Parameters:
-    - url: Original URL string
-    - length: Length of the hash string (maximum 64, default 16)
-    
-    Returns:
-    - Hash string (e.g.: 3a7f9e7d9a1b4e2d)
+    Convert URL to a fixed-length hash string (without extension), used to name media materials.
+    For a local file the hash also covers its size and modification time (capcut-mcp-kit): a file
+    replaced at the same path becomes a different material, so clips added before keep the version
+    they were made with.
     """
-    # Ensure URL is bytes type
-    url_bytes = url.encode('utf-8')
-    
-    # Use SHA-256 to generate hash (secure and highly unique)
-    hash_object = hashlib.sha256(url_bytes)
-    
-    # Truncate to specified length of hexadecimal string
-    return hash_object.hexdigest()[:length]
+    return hashlib.sha256(_source_key(url).encode('utf-8')).hexdigest()[:length]
+
+
+def _source_key(url):
+    local = os.path.expanduser(str(url))
+    if "://" not in str(url) and os.path.isfile(local):
+        st = os.stat(local)
+        return f"{url}\0{st.st_size}\0{st.st_mtime_ns}"
+    return str(url)
+
+
+def source_changed(material_name, url):
+    """True when a material named by url_to_hash no longer matches the file at url (replaced or
+    edited after it was added). Names from older versions (path only) and other names are not judged."""
+    m = re.match(r"^(?:video|image|audio)_([0-9a-f]{16})\.", str(material_name or ""))
+    if not m or not url:
+        return False
+    plain = hashlib.sha256(str(url).encode('utf-8')).hexdigest()[:16]
+    return m.group(1) not in (url_to_hash(url), plain)
 
 
 def timing_decorator(func_name):

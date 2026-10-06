@@ -4,7 +4,7 @@ import uuid
 import pyJianYingDraft as draft
 import time
 from draft_cache import DRAFT_CACHE, update_cache
-from draft_store import get_draft, persist
+from draft_store import get_draft, store_new
 
 # Frame rates CapCut offers for a project
 SUPPORTED_FPS = (24, 25, 30, 50, 60)
@@ -26,9 +26,8 @@ def create_draft(width=1080, height=1920, fps=30):
     # Create CapCut draft with specified resolution
     script = draft.Script_file(width, height, fps)
     
-    # Store in global cache and on disk
-    update_cache(draft_id, script)
-    persist(draft_id, script)
+    # Store on disk and in the cache
+    store_new(draft_id, script)
     
     return script, draft_id
 

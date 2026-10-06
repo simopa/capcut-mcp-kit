@@ -13,11 +13,15 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def isolate_from_capcut(monkeypatch, tmp_path):
-    """Added in capcut-mcp-kit: no test may touch the real CapCut drafts folder, backups or draft store."""
+def isolate_from_capcut(tmp_path):
+    """Added in capcut-mcp-kit: no test may touch the real CapCut drafts folder, backups or draft store.
+    Its own MonkeyPatch, so a test calling monkeypatch.undo() cannot lift the isolation."""
     import save_draft_impl
-    monkeypatch.setattr(save_draft_impl, "find_capcut_projects_dir", lambda: None)
-    monkeypatch.setattr(save_draft_impl, "capcut_is_running", lambda: False)
-    monkeypatch.setenv("CAPCUT_MCP_BACKUP_DIR", str(tmp_path / "backups"))
-    monkeypatch.setenv("CAPCUT_MCP_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setenv("CAPCUT_MCP_TOKEN", "test-token")
+    mp = pytest.MonkeyPatch()
+    mp.setattr(save_draft_impl, "find_capcut_projects_dir", lambda: None)
+    mp.setattr(save_draft_impl, "capcut_is_running", lambda: False)
+    mp.setenv("CAPCUT_MCP_BACKUP_DIR", str(tmp_path / "backups"))
+    mp.setenv("CAPCUT_MCP_STATE_DIR", str(tmp_path / "state"))
+    mp.setenv("CAPCUT_MCP_TOKEN", "test-token")
+    yield
+    mp.undo()

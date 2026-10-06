@@ -59,8 +59,10 @@ cd capcut-mcp-kit
 
 `setup.sh` installs the exact package versions in `vectcut-api/requirements*.lock.txt` and
 `capcut-mcp-server/package-lock.json`. It can be run again at any time (to update, or on a new Mac):
-it builds everything aside and switches only when the new build works, then stops a running backend
-so the next tool call starts the new one. Drafts in progress live in
+it builds everything aside and switches only when the new build works (`vectcut-api/venv` is a
+symlink to the active environment in `vectcut-api/venvs/`), then stops a running backend so the
+next tool call starts the new one. It stops it only if it can confirm the process is this kit's
+backend; otherwise it tells you to restart it yourself. Drafts in progress live in
 `~/Library/Application Support/capcut-mcp-kit`; copy that folder to keep them on a new Mac.
 
 Tests: `cd vectcut-api && venv/bin/python -m pip install pytest && venv/bin/python -m pytest` and
@@ -126,14 +128,21 @@ Conventions:
   other piece to hide jump cuts.
 - **Existing projects:** `capcut_open_project` gives a draft that adds new tracks to a project made
   in CapCut. Saving writes the original timeline back unchanged plus the additions, in all the copies
-  CapCut keeps; it refuses while CapCut is open or if the project changed since it was opened, and
-  backs up the whole project folder first. Existing clips cannot be edited this way.
+  CapCut keeps; it refuses while CapCut is open (or if that cannot be told), if the project changed
+  since it was opened (its timeline files, or which timeline is the main one), if its timeline copies
+  disagree, or if a path inside it is a symbolic link. It backs up the whole project folder first and
+  undoes a write that fails halfway. Media files already in the project are never overwritten: a
+  file replaced at the same path is added under its own name, and clips added earlier keep the
+  version they were made with. Existing clips cannot be edited this way.
 - **Saving** again under the same `project_name` replaces the project that draft saved before; the
   old folder is moved to `~/Movies/CapCut MCP Backups` (set `CAPCUT_MCP_BACKUP_DIR` to change it),
   never deleted, and backups are not pruned. A project the draft did not save, or that was changed in
   CapCut since the draft saved it, is replaced only with `overwrite: true` (to add to a project you
-  edited, use `capcut_open_project`). Replacing is refused while CapCut is open, because CapCut writes the project it
-  holds back to disk when it closes; saving under a new name works with CapCut open.
+  edited, use `capcut_open_project`). Which folders a draft saved is kept in the draft itself, not
+  in the folder, so a file in a project cannot authorize replacing it. Replacing is refused while
+  CapCut is open (or if that cannot be told), because CapCut writes the project it holds back to disk
+  when it closes; saving under a new name works with CapCut open. Media inside the project being
+  replaced is copied into the new one, not referenced where it was.
 - **Color correction:** saturation/contrast/brightness keyframes with the same value at the clip's
   start and end act as a constant adjustment, still editable in CapCut.
 
@@ -144,13 +153,26 @@ Conventions:
   VectCutAPI does not render in CapCut 9.1. Use `capcut_add_image` with a PNG instead.
 - **Color filters** (CapCut's Filters panel) and in-app AI features (retouch, background removal,
   stabilization, auto captions) are not available.
-- **Retries are safe:** every change carries a request id, and if its reply is lost the MCP server
+- **Retries are safe:** every call carries a request id, and if its reply is lost the MCP server
   sends it once more with the same id; the backend returns the first reply instead of applying the
-  change twice. Replies report the draft's `revision`; `capcut_save_draft` accepts
-  `expected_revision` to save only if no other client changed the draft meanwhile.
+  change (or creating/opening a draft) twice. An id reused for a different call is refused. Replies
+  are kept 7 days; a retry after that is refused, not applied again. Replies report the draft's
+  `revision`; `capcut_save_draft` accepts `expected_revision` to save only if no other client changed
+  the draft meanwhile.
 - **Drafts in progress** are kept in `~/Library/Application Support/capcut-mcp-kit/drafts.sqlite3`
-  (set `CAPCUT_MCP_STATE_DIR` to move it), so they survive a backend restart. A change that fails
-  leaves the draft as it was, and an unknown draft ID is an error rather than a new empty project.
+  (set `CAPCUT_MCP_STATE_DIR` to move it; folder and files readable only by you), so they survive a
+  backend restart. A change runs under a lock shared by every backend process, on the draft as last
+  stored; the new draft, its revision and the reply to its request id are stored in one transaction.
+  A change that fails leaves the draft as it was, and an unknown draft ID is an error rather than a
+  new empty project. The stored drafts are Python pickles: do not load a state folder you got from
+  someone else.
+- **Saving is journalled, not atomic across files:** a save writes several files and folders. Each
+  one is written aside and renamed in; if the save fails it is undone, and if the backend stops
+  halfway the next save of that draft (or the next start of the backend) finishes or undoes it, so a
+  project ends up as either the old or the new version. If the project was written but the draft
+  could not be recorded, the reply says so and the next save reconciles it. A save with a custom
+  `draft_folder` interrupted by a crash can leave that folder and the CapCut copy at different
+  versions. CapCut is detected by process name, not by the project it has open.
 - The backend listens on 127.0.0.1 only, refuses requests from web pages, and requires the header
   `X-CapCut-Kit-Token` with the token in `~/Library/Application Support/capcut-mcp-kit/token`
   (created on first start, readable only by you; the MCP server sends it). Only `GET /health` is

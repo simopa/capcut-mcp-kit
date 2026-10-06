@@ -59,7 +59,10 @@ e aggiungi un titolo nei primi 3 secondi". `capcut_list_projects` mostra i proge
 che ci sono già non vengono mai modificate, spostate o tolte. Al salvataggio il kit riscrive la
 timeline originale identica più le aggiunte, in tutte le copie che CapCut tiene, dopo aver fatto un
 backup dell'intera cartella del progetto in `~/Movies/CapCut MCP Backups`. **Chiudi CapCut prima di
-salvare**; se nel frattempo hai modificato il progetto in CapCut, va riaperto.
+salvare** (se il kit non riesce a capire se è aperto, non salva); se nel frattempo hai modificato il
+progetto in CapCut, va riaperto. Se il salvataggio si interrompe a metà, il kit lo annulla o lo
+completa al salvataggio successivo: il progetto resta nella versione vecchia o in quella nuova, mai
+a metà.
 
 Se hai modificato in CapCut un progetto creato dal kit, il kit non lo sovrascrive più ri-salvando il
 vecchio draft: lo rifiuta e chiede di aprirlo con `capcut_open_project` (oppure `overwrite: true`,
@@ -91,9 +94,10 @@ e la tua versione finisce comunque nei backup).
 
 ## Trasloco su un nuovo Mac
 
-Installa i prerequisiti, poi `git clone` + `./setup.sh` come sopra. Gli ambienti locali (`venv/`,
-`node_modules/`, `dist/`) non sono nel repository: li rigenera `setup.sh`, con le stesse versioni dei
-pacchetti (file `requirements*.lock.txt` e `package-lock.json`). Si può rilanciare quando si vuole:
+Installa i prerequisiti, poi `git clone` + `./setup.sh` come sopra. Gli ambienti locali (`venv`, che
+punta all'ambiente attivo in `venvs/`, `node_modules/`, `dist/`) non sono nel repository: li rigenera
+`setup.sh`, con le stesse versioni dei pacchetti (file `requirements*.lock.txt` e
+`package-lock.json`). Si può rilanciare quando si vuole:
 prepara tutto a parte e sostituisce l'installazione solo se funziona. I draft in corso stanno in
 `~/Library/Application Support/capcut-mcp-kit`: copiala se vuoi ritrovarli sul nuovo Mac.
 

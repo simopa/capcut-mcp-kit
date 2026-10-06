@@ -10,10 +10,10 @@ import hmac
 import os
 import secrets
 
-from draft_store import state_dir
+from draft_store import private_dir, state_dir
 
 KIT_SERVICE = "capcut-mcp-kit"
-KIT_VERSION = "0.3.0"
+KIT_VERSION = "0.4.0"
 KIT_API = 1
 TOKEN_HEADER = "X-CapCut-Kit-Token"
 
@@ -28,7 +28,7 @@ def token() -> str:
         return env
     path = token_path()
     if not os.path.exists(path):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        private_dir(os.path.dirname(path))
         try:
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "w") as f:

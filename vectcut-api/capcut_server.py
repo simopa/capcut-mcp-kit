@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; routes that change a draft are transactional (draft_store); /open_project; list_projects flags real projects; /add_background_music, /timeline; auto_track; create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted; token required (kit_auth) except GET /health.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; routes that change a draft are transactional (draft_store), create_draft and open_project idempotent with request_id; unfinished saves settled at startup; /open_project; list_projects flags real projects; /add_background_music, /timeline; auto_track; create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted; token required (kit_auth) except GET /health.
 # See NOTICE at the repository root.
 import requests
 import os
@@ -43,7 +43,7 @@ from pyJianYingDraft.text_segment import TextStyleRange, Text_style, Text_border
 
 from settings.local import IS_CAPCUT_ENV, DRAFT_DOMAIN, PREVIEW_ROUTER, PORT
 from web_preview import preview_bp, broadcast_draft_update
-from draft_store import transactional
+from draft_store import idempotent, transactional
 import kit_auth
 from web_preview import reload_capcut_desktop  # falls back to a stub off Windows
 
@@ -244,6 +244,7 @@ def add_audio():
         return jsonify(result)
 
 @app.route('/create_draft', methods=['POST'])
+@idempotent
 def create_draft_service():
     data = request.get_json()
     
@@ -927,6 +928,7 @@ def list_projects():
         return jsonify({"success": False, "error": str(e)})
 
 @app.route('/open_project', methods=['POST'])
+@idempotent
 def open_project():
     data = request.get_json(silent=True) or {}
     try:
@@ -1759,4 +1761,6 @@ def timeline():
 
 if __name__ == '__main__':
     kit_auth.token()  # create the token file before the first client needs it
+    import save_draft_impl
+    save_draft_impl.recover_saves()  # settle saves a previous run left halfway
     app.run(host='127.0.0.1', port=PORT)

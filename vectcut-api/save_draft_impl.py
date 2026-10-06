@@ -1,12 +1,17 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: save straight into the local CapCut drafts folder (macOS/Windows), rename the folder to project_name, fix draft_meta_info.json; media under ~/Movies referenced in place; each file copied once even when used by many clips; validated folder names, staging + swap, existing folders moved to backups instead of deleted, failures reported; drafts opened from an existing project are saved by existing_project.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: save straight into the local CapCut drafts folder (macOS/Windows), rename the folder to project_name, fix draft_meta_info.json; media under ~/Movies referenced in place; each file copied once even when used by many clips; validated folder names, staging + swap, existing folders moved to backups instead of deleted, failures reported; drafts opened from an existing project are saved by existing_project; one lock per project folder, checks repeated at commit, rename without replacing, the old folder kept on the same volume until the new one is in, journalled saves settled after a crash; a folder may be replaced only if the draft's own state says it saved it; CapCut must be known to be closed.
 # See NOTICE at the repository root.
+import contextlib
+import ctypes
+import errno
 import os
+import sys
 import pyJianYingDraft as draft
 import shutil
-from util import zip_draft, build_draft_asset_path
+from util import zip_draft, build_draft_asset_path, source_changed
 from oss import upload_to_oss
 from typing import Dict, Literal
-from draft_store import get_draft, DraftNotFound
+from draft_store import (get_draft, DraftNotFound, project_lock, journal_begin, journal_update, journal_pending,
+                         committed_to_disk)
 from save_task_cache import DRAFT_TASKS, get_task_status, update_tasks_cache, update_task_field, increment_task_field, update_task_fields, create_task
 from downloader import download_audio, download_file, download_image, download_video
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -82,20 +87,28 @@ def fix_draft_meta(meta_dir, draft_dir, display_name, duration, previous=None):
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False)
 
-def use_in_place(material, source) -> bool:
+def _inside(path, folder) -> bool:
+    """True if path is folder or anything in it (symbolic links resolved)."""
+    path, folder = os.path.realpath(path), os.path.realpath(folder)
+    return path == folder or path.startswith(folder.rstrip(os.sep) + os.sep)
+
+def use_in_place(material, source, avoid=()) -> bool:
     """Reference local media where it is instead of copying it into the project. CapCut is
     sandboxed and can only open files under ~/Movies on its own, so this applies there; other
     local files are cloned into the project (copy-on-write, see downloader.download_file).
-    Returns True if handled."""
+    Files inside `avoid` (the folders this save replaces) are always copied: the folder they are
+    in goes to the backups. Returns True if handled."""
     local = os.path.realpath(os.path.expanduser(str(source)))
     movies = os.path.realpath(os.path.expanduser("~/Movies")) + os.sep
     if IS_UPLOAD_DRAFT or not os.path.isfile(local) or not local.startswith(movies):
         return False
+    if any(_inside(local, folder) for folder in avoid):
+        return False
     material.replace_path = local
     return True
 
-# Written into every folder this kit saves, so a later save of the same draft can tell its own
-# project apart from one it must not replace.
+# Written into every folder this kit saves, for whoever looks at it. It authorizes nothing: which
+# folders a draft may replace is in the draft's own state (kit_saves).
 KIT_MARKER = ".capcut_mcp_kit.json"
 
 class SaveDraftError(Exception):
@@ -119,16 +132,44 @@ def child_dir(parent, name):
         raise SaveDraftError(f"{path} resolves outside {parent}")
     return path
 
+def project_path(root, *parts):
+    """root/parts..., refused if it would leave root or pass through a symbolic link (checked for
+    every part that exists: a link inside a project could point anywhere)."""
+    path = root
+    for part in parts:
+        if part in ("", ".", "..") or "/" in part or "\\" in part:
+            raise SaveDraftError(f"Invalid path {'/'.join(parts)!r} in project {os.path.basename(root)!r}")
+        path = os.path.join(path, part)
+        if os.path.islink(path):
+            raise SaveDraftError(f"'{os.path.relpath(path, root)}' in project '{os.path.basename(root)}' is a symbolic "
+                                 f"link: the kit only reads and writes inside the project folder. Nothing was written.")
+    if not _inside(path, root):
+        raise SaveDraftError(f"{path} resolves outside {root}")
+    return path
+
 def capcut_is_running():
     """True/False, or None when it cannot be determined."""
     try:
         if os.name == 'nt':
-            out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq CapCut.exe", "/NH"],
-                                 capture_output=True, text=True, timeout=5).stdout
-            return "CapCut.exe" in out
-        return subprocess.run(["pgrep", "-x", "CapCut"], capture_output=True, timeout=5).returncode == 0
+            done = subprocess.run(["tasklist", "/FI", "IMAGENAME eq CapCut.exe", "/NH"],
+                                  capture_output=True, text=True, timeout=5)
+            return "CapCut.exe" in done.stdout if done.returncode == 0 else None
+        code = subprocess.run(["pgrep", "-x", "CapCut"], capture_output=True, timeout=5).returncode
+        return {0: True, 1: False}.get(code)  # pgrep: 1 = no such process, anything else = error
     except Exception:
         return None
+
+def ensure_capcut_closed(what, hint=""):
+    """Refuse `what` unless CapCut is known to be closed: it keeps the project in memory and writes
+    it back over the saved one when it closes."""
+    running = capcut_is_running()
+    if running is False:
+        return
+    if running:
+        raise SaveDraftError(f"CapCut is open: quit CapCut before {what}, otherwise it writes its own copy back "
+                             f"over the project when it closes. Nothing was written.{hint}")
+    raise SaveDraftError(f"Could not tell whether CapCut is open, so {what} was not attempted: quit CapCut "
+                         f"and try again. Nothing was written.{hint}")
 
 def backup_root():
     configured = os.environ.get("CAPCUT_MCP_BACKUP_DIR")
@@ -138,18 +179,67 @@ def backup_root():
         return os.path.expandvars(r"%LOCALAPPDATA%\CapCut MCP Backups")
     return os.path.expanduser("~/Movies/CapCut MCP Backups")
 
-def move_to_backup(path):
-    """Move a folder out of the way instead of deleting it. Returns where it went."""
+def backup_dest(name):
+    """A new, unused path in the backups folder for a copy of the project `name`."""
     root = backup_root()
     os.makedirs(root, exist_ok=True)
-    base = f"{os.path.basename(path)} {time.strftime('%Y%m%d-%H%M%S')}"
+    base = f"{name} {time.strftime('%Y%m%d-%H%M%S')}"
     dest, n = os.path.join(root, base), 1
-    while os.path.lexists(dest):
+    while os.path.lexists(dest) or os.path.lexists(dest + ".partial"):
         n += 1
         dest = os.path.join(root, f"{base}-{n}")
-    shutil.move(path, dest)
+    return dest
+
+def clone_tree(src, dst):
+    """Copy a folder, as copy-on-write clones where the filesystem supports it (APFS)."""
+    if hasattr(os, "uname") and os.uname().sysname == "Darwin":
+        if subprocess.run(["cp", "-c", "-R", src, dst], capture_output=True).returncode == 0:
+            return
+        shutil.rmtree(dst, ignore_errors=True)
+    shutil.copytree(src, dst, symlinks=True)
+
+def move_to_backup(path, name=None):
+    """Move a folder to the backups instead of deleting it. Returns where it went. On another
+    volume it is copied in full (to a .partial folder renamed once complete) before the original
+    is removed; if the removal fails the backup is complete and the error says what is left."""
+    dest = backup_dest(name or os.path.basename(path))
+    try:
+        os.rename(path, dest)
+    except OSError as e:
+        if e.errno != errno.EXDEV:
+            raise
+        partial = dest + ".partial"
+        try:
+            clone_tree(path, partial)
+            os.rename(partial, dest)
+        except BaseException:
+            shutil.rmtree(partial, ignore_errors=True)
+            raise
+        try:
+            shutil.rmtree(path)
+        except OSError as e2:
+            raise SaveDraftError(f"Backed up to {dest}, but the old copy at {path} could not be removed: {e2}")
     logger.info(f"Moved {path} to backup {dest}")
     return dest
+
+_renamex_np = None
+
+def rename_noreplace(src, dst):
+    """Rename src to dst, failing (FileExistsError or OSError) if anything exists at dst, without a
+    window in which something created meanwhile could be replaced."""
+    global _renamex_np
+    if sys.platform == "darwin":
+        if _renamex_np is None:
+            libc = ctypes.CDLL(None, use_errno=True)
+            _renamex_np = libc.renamex_np
+            _renamex_np.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        if _renamex_np(os.fsencode(src), os.fsencode(dst), 0x4) != 0:  # RENAME_EXCL
+            err = ctypes.get_errno()
+            raise OSError(err, os.strerror(err), dst)
+        return
+    if os.path.lexists(dst):
+        raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), dst)
+    os.rename(src, dst)
 
 def _read_marker(folder) -> dict:
     try:
@@ -179,68 +269,114 @@ def read_meta(folder):
     except (OSError, ValueError):
         return None
 
-def check_replace(target, draft_id, overwrite, in_capcut, content_file="draft_info.json"):
-    """Refuse to replace a folder this draft did not save, or that was changed in CapCut since this
-    draft saved it (unless overwrite), and any CapCut project while CapCut is open: it keeps the
-    project in memory and writes it back on close."""
+def kit_saves(script) -> dict:
+    """The folders this draft saved and the timeline it wrote in each: {real path: sha256}. Kept in
+    the draft (not in the folder) so a file in the folder cannot authorize replacing it."""
+    if not isinstance(getattr(script, "kit_saves", None), dict):
+        script.kit_saves = {}
+    return script.kit_saves
+
+def check_replace(target, saved, overwrite, in_capcut, content_file="draft_info.json"):
+    """Refuse to replace a folder this draft did not save, or that changed since this draft saved
+    it (unless overwrite), and any CapCut project while CapCut is open (or might be). Returns the
+    sha256 of the target's timeline as checked (None if it has none), to verify it again when the
+    folder is moved."""
     if not os.path.lexists(target):
-        return
+        return None
     name = os.path.basename(target)
     if os.path.islink(target) or not os.path.isdir(target):
         raise SaveDraftError(f"'{name}' exists and is not a project folder")
-    if read_kit_marker(target) != draft_id and not overwrite:
+    recorded = saved.get(os.path.realpath(target))
+    current = _file_sha(os.path.join(target, content_file))
+    if not overwrite and recorded is None:
         raise SaveDraftError(
             f"A project named '{name}' already exists and was not saved from this draft. "
             f"Choose another project_name, or pass overwrite=true to replace it "
             f"(the old folder is moved to {backup_root()}, not deleted).")
-    marker = _read_marker(target)
-    if marker.get("draft_id") == draft_id and marker.get("content_sha") and not overwrite \
-            and _file_sha(os.path.join(target, content_file)) != marker["content_sha"]:
+    if not overwrite and current != recorded:
         raise SaveDraftError(
             f"'{name}' was changed in CapCut after this draft saved it: saving the draft again would replace "
             f"those changes. Open it with capcut_open_project to add to it, or pass overwrite=true to replace "
             f"it anyway (the edited version is moved to {backup_root()}, not deleted).")
-    if in_capcut and capcut_is_running():
-        raise SaveDraftError(
-            f"CapCut is open: quit CapCut before replacing '{name}', otherwise it writes its own "
-            f"copy back over the saved project when it closes. Saving under a new project_name works while it is open.")
+    if in_capcut:
+        ensure_capcut_closed(f"replacing '{name}'", " Saving under a new project_name works while CapCut is open.")
+    return current
 
-def commit_dir(stage_dir, target):
-    """Swap a fully written staging folder into place, moving any existing target to backups."""
-    backup = move_to_backup(target) if os.path.lexists(target) else None
+def swap_in(stage_dir, target, checked_sha, content_file):
+    """Put a fully written staging folder at target. An existing target is first renamed aside in
+    the same folder (atomic, same volume) and verified to be what was checked; the new folder is
+    then renamed in without replacing anything that appeared meanwhile. Returns the aside path (or
+    None): the old project, still next to the new one until finish_swap moves it to the backups."""
+    name = os.path.basename(target)
+    aside = None
+    if os.path.lexists(target):
+        aside = child_dir(os.path.dirname(target), f".capcut-mcp-old-{uuid.uuid4().hex[:8]}")
+        os.rename(target, aside)
+        if _file_sha(os.path.join(aside, content_file)) != checked_sha:
+            os.rename(aside, target)
+            raise SaveDraftError(f"'{name}' changed while it was being saved: nothing was replaced, try again")
     try:
-        os.rename(stage_dir, target)
-    except Exception:
-        if backup:
-            shutil.move(backup, target)
-        raise
-    return backup
+        rename_noreplace(stage_dir, target)
+    except OSError:
+        if aside:
+            rename_noreplace(aside, target)
+        raise SaveDraftError(f"A folder named '{name}' appeared while saving: nothing was replaced, try again")
+    return aside
+
+def undo_swap(target, aside):
+    """Put back what swap_in replaced; the new folder (written by this save) is removed."""
+    failed = child_dir(os.path.dirname(target), f".capcut-mcp-failed-{uuid.uuid4().hex[:8]}")
+    os.rename(target, failed)
+    if aside:
+        rename_noreplace(aside, target)
+    shutil.rmtree(failed, ignore_errors=True)
+
+def finish_swap(aside, name):
+    """Move the replaced project to the backups. Returns (where it is, warning or None): if it
+    cannot be moved it stays next to the new one, hidden, and the warning says where."""
+    try:
+        return move_to_backup(aside, name), None
+    except Exception as e:
+        where = aside if os.path.lexists(aside) else None
+        logger.error(f"Could not move {aside} to the backups: {e}", exc_info=True)
+        return where, f"the replaced version of '{name}' could not be moved to the backups ({e})" + \
+            (f"; it is at {aside}" if where else "")
 
 def write_kit_marker(folder, draft_id, content_file="draft_info.json"):
-    """Record which draft wrote this folder and the timeline it wrote, to notice later edits in CapCut."""
+    """Record which draft wrote this folder and the timeline it wrote (informational)."""
     with open(os.path.join(folder, KIT_MARKER), "w", encoding="utf-8") as f:
         json.dump({"draft_id": draft_id, "content_sha": _file_sha(os.path.join(folder, content_file))}, f)
 
-def copy_assets(script, task_id, path_base, path_name, dest_root):
-    """Point every media material at <path_base>/<path_name>/assets/<type>/<name> (where it will be
-    once dest_root is in place) and copy the files into <dest_root>/assets/<type>/<name>. Media
-    under ~/Movies is referenced where it is. Raises SaveDraftError if any file is missing."""
-    download_tasks = []
-    missing = []
+def _media_materials(script):
     materials = [(audio, "audio") for audio in (script.materials.audios or [])]
     for video in (script.materials.videos or []):
         if video.material_type == 'photo':
             materials.append((video, "image"))
         elif video.material_type == 'video':
             materials.append((video, "video"))
-    for material, asset_type in materials:
+    return materials
+
+def copy_assets(script, task_id, path_base, path_name, dest_root, avoid=(), skip=()):
+    """Point every media material at <path_base>/<path_name>/assets/<type>/<name> (where it will be
+    once dest_root is in place) and copy the files into <dest_root>/assets/<type>/<name>. Media
+    under ~/Movies is referenced where it is, unless it is inside `avoid` (folders this save
+    replaces). Materials whose id is in `skip` are left as they are (already in the project).
+    Raises SaveDraftError if any file is missing or changed since it was added."""
+    download_tasks = []
+    missing = []
+    for material, asset_type in _media_materials(script):
+        if skip and getattr(material, "material_id", None) in skip:
+            continue
         remote_url = material.remote_url
         material_name = material.material_name
         material.replace_path = build_asset_path(path_base, path_name, asset_type, material_name)
         if not remote_url:
             missing.append(f"{material_name} (no source)")
             continue
-        if use_in_place(material, remote_url):
+        if use_in_place(material, remote_url, avoid):
+            continue
+        if source_changed(material_name, remote_url):
+            missing.append(f"{material_name} ({remote_url} was replaced or edited after it was added: add it again)")
             continue
         download_tasks.append({
             'type': asset_type,
@@ -286,6 +422,74 @@ def copy_assets(script, task_id, path_base, path_name, dest_root):
     if missing:
         raise SaveDraftError("Draft not saved, some media could not be copied: " + "; ".join(missing))
 
+def verify_references(script, final_dir, stage_dir, avoid=(), existing_ok=False):
+    """Every media material must point at a file that will exist once stage_dir is at final_dir,
+    and never into a folder this save replaces."""
+    broken = []
+    for material, _ in _media_materials(script):
+        path = material.replace_path
+        if not path:
+            broken.append(material.material_name)
+        elif _inside(path, final_dir):
+            rel = os.path.relpath(os.path.abspath(path), os.path.abspath(final_dir))
+            if not os.path.isfile(os.path.join(stage_dir, rel)) and not (existing_ok and os.path.isfile(path)):
+                broken.append(material.material_name)
+        elif not os.path.isfile(path) or any(_inside(path, folder) for folder in avoid):
+            broken.append(material.material_name)
+    if broken:
+        raise SaveDraftError("Draft not saved, some media would point at files that will not exist: " + ", ".join(broken))
+
+def _recover_replace(op_id, details, script):
+    """Settle a save that replaced project folders and did not finish (crash, or the draft could
+    not be recorded). Each folder ends up either the new version or the old one; with the draft at
+    hand, the new versions are recorded in it."""
+    content_file = details["content_file"]
+    settled, adopted = True, []
+    for pair in details["pairs"]:
+        target, aside, stage = pair["target"], pair.get("aside"), pair.get("stage")
+        written = os.path.isdir(target) and not os.path.islink(target) and \
+            _file_sha(os.path.join(target, content_file)) == pair["content_sha"]
+        if written:
+            adopted.append(pair)
+            if aside and os.path.lexists(aside):
+                finish_swap(aside, os.path.basename(target))
+        elif not os.path.lexists(target) and aside and os.path.lexists(aside):
+            rename_noreplace(aside, target)  # interrupted between the two renames
+        elif aside and os.path.lexists(aside):
+            settled = False  # something else is at target: leave the old version where it is
+            logger.error(f"Save {op_id}: '{target}' is not the saved version; the previous one is at {aside}")
+        if stage and os.path.lexists(stage):
+            shutil.rmtree(stage, ignore_errors=True)
+    if not settled:
+        return
+    if adopted and script is None:
+        return  # the draft records them when it is next saved
+    for pair in adopted:
+        kit_saves(script)[os.path.realpath(pair["target"])] = pair["content_sha"]
+    if adopted:
+        committed_to_disk(op_id, "an earlier save, reconciled")
+    else:
+        journal_update(op_id, "rolled_back")
+
+def recover_saves(draft_id=None, script=None):
+    """Settle the journalled saves that did not finish: those of draft_id (recording what they
+    wrote in script, its working copy), or all of them at startup."""
+    import existing_project
+    for op_id, op_draft, kind, details in journal_pending(draft_id):
+        folders = details.get("locks") or []
+        with contextlib.ExitStack() as stack:
+            for folder in sorted(folders):
+                stack.enter_context(project_lock(folder))
+            if not any(op == op_id for op, *_ in journal_pending(op_draft)):
+                continue  # settled meanwhile
+            try:
+                if kind == "replace":
+                    _recover_replace(op_id, details, script if op_draft == draft_id else None)
+                elif kind == "existing":
+                    existing_project.recover(op_id, details, script if op_draft == draft_id else None)
+            except Exception as e:
+                logger.error(f"Could not settle save {op_id}: {e}", exc_info=True)
+
 def save_draft_background(draft_id, draft_folder, task_id, project_name=None, auto_deploy=True, overwrite=False):
     """Save a draft: write it into a staging folder next to its destination, check every asset
     arrived, then swap it in. An existing folder is moved to backups, never deleted.
@@ -299,6 +503,7 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
             script = get_draft(draft_id)
         except DraftNotFound as e:
             raise SaveDraftError(str(e))
+        recover_saves(draft_id, script)
         if getattr(script, "base_project", None):
             # Opened with capcut_open_project: add to that project, never replace it
             if project_name and project_name.strip() != script.base_project["name"]:
@@ -323,14 +528,16 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
         deploy_dir = None
         if not in_place and capcut_projects_dir and (auto_deploy or project_name):
             deploy_dir = child_dir(capcut_projects_dir, project_name or draft_id)
+        targets = [(draft_dir, in_place)] + ([(deploy_dir, True)] if deploy_dir else [])
+        avoid = [t for t, _ in targets]
+        saved = kit_saves(script)
 
         # Refuse before writing anything
-        content_file = get_draft_profile().content_file
-        check_replace(draft_dir, draft_id, overwrite, in_capcut=in_place, content_file=content_file)
-        if deploy_dir:
-            check_replace(deploy_dir, draft_id, overwrite, in_capcut=True, content_file=content_file)
-
         draft_profile = get_draft_profile()
+        content_file = draft_profile.content_file
+        for target, in_capcut in targets:
+            check_replace(target, saved, overwrite, in_capcut, content_file)
+
         template_source_dir = os.path.join(current_dir, draft_profile.template_dir)
         if not os.path.exists(template_source_dir):
             raise FileNotFoundError(f"Template draft {draft_profile.template_dir} does not exist")
@@ -343,37 +550,72 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
 
         # Assets are copied into the staging folder; replace_path is where they will be once it
         # is renamed to draft_dir.
-        copy_assets(script, task_id, output_base_dir, final_name, stage_dir)
+        copy_assets(script, task_id, output_base_dir, final_name, stage_dir, avoid=avoid)
+        verify_references(script, draft_dir, stage_dir, avoid)
 
         update_task_fields(task_id, message="Saving draft information", progress=70)
         written_files = write_profile_content(draft_profile, stage_dir, script.dumps(draft_profile))
         logger.info(f"Draft information has been saved to {[str(path) for path in written_files]}.")
         write_kit_marker(stage_dir, draft_id, draft_profile.content_file)
+        content_sha = _file_sha(os.path.join(stage_dir, content_file))
         if in_place:
-            previous = read_meta(draft_dir) if read_kit_marker(draft_dir) == draft_id else None
+            previous = read_meta(draft_dir) if os.path.realpath(draft_dir) in saved else None
             fix_draft_meta(stage_dir, draft_dir, project_name or draft_id, script.duration, previous)
-
-        backups = []
-        backup = commit_dir(stage_dir, draft_dir)
-        stages.remove(stage_dir)
-        if backup:
-            backups.append(backup)
+        pairs = [{"target": draft_dir, "stage": stage_dir}]
 
         if deploy_dir:
-            # Saved elsewhere: also place a copy in CapCut's drafts directory
+            # Saved elsewhere: also place a copy in CapCut's drafts directory (committed together)
             deploy_stage = child_dir(capcut_projects_dir, f".capcut-mcp-saving-{uuid.uuid4().hex[:8]}")
             stages.append(deploy_stage)
-            shutil.copytree(draft_dir, deploy_stage)
+            shutil.copytree(stage_dir, deploy_stage)
             lock_f = os.path.join(deploy_stage, ".locked")
             if os.path.exists(lock_f):
                 os.remove(lock_f)
-            previous = read_meta(deploy_dir) if read_kit_marker(deploy_dir) == draft_id else None
+            previous = read_meta(deploy_dir) if os.path.realpath(deploy_dir) in saved else None
             fix_draft_meta(deploy_stage, deploy_dir, project_name or draft_id, script.duration, previous)
-            backup = commit_dir(deploy_stage, deploy_dir)
-            stages.remove(deploy_stage)
-            if backup:
-                backups.append(backup)
-            logger.info(f"Auto-deployed draft to CapCut directory: {deploy_dir}")
+            pairs.append({"target": deploy_dir, "stage": deploy_stage})
+        for pair in pairs:
+            pair["content_sha"] = content_sha
+
+        # Commit under every target's lock, checking again what was checked before staging
+        backups, warnings = [], []
+        with contextlib.ExitStack() as stack:
+            for target in sorted(os.path.realpath(t) for t, _ in targets):
+                stack.enter_context(project_lock(target))
+            checked = {target: check_replace(target, saved, overwrite, in_capcut, content_file)
+                       for target, in_capcut in targets}
+            details = {"content_file": content_file, "pairs": pairs,
+                       "locks": [os.path.realpath(t) for t, _ in targets]}
+            op_id = journal_begin(draft_id, "replace", details)
+            swapped = []
+            try:
+                for pair in pairs:
+                    pair["aside"] = None
+                    aside = swap_in(pair["stage"], pair["target"], checked[pair["target"]], content_file)
+                    pair["aside"] = aside
+                    stages.remove(pair["stage"])
+                    swapped.append(pair)
+                    journal_update(op_id, details=details)
+            except BaseException:
+                try:
+                    for pair in reversed(swapped):
+                        undo_swap(pair["target"], pair["aside"])
+                    journal_update(op_id, "rolled_back")
+                except Exception as e:
+                    logger.error(f"Could not undo save {op_id}: {e}", exc_info=True)
+                raise
+            for pair in pairs:
+                saved[os.path.realpath(pair["target"])] = content_sha
+                if pair["aside"]:
+                    where, warning = finish_swap(pair["aside"], os.path.basename(pair["target"]))
+                    if where:
+                        backups.append(where)
+                    if warning:
+                        warnings.append(warning)
+            committed_to_disk(op_id, "saved " + " and ".join(p["target"] for p in pairs) +
+                              (f", previous versions in {', '.join(backups)}" if backups else ""))
+        for pair in pairs:
+            logger.info(f"Saved draft {draft_id} to {pair['target']}")
 
         draft_url = ""
         # Only upload draft information when IS_UPLOAD_DRAFT is True
@@ -390,7 +632,10 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
 
         update_task_fields(task_id, status="completed", progress=100, message="Draft creation completed")
         logger.info(f"Task {task_id} completed: {deploy_dir or draft_dir}")
-        return {"draft_url": draft_url if IS_UPLOAD_DRAFT else (deploy_dir or draft_dir), "backups": backups}
+        result = {"draft_url": draft_url if IS_UPLOAD_DRAFT else (deploy_dir or draft_dir), "backups": backups}
+        if warnings:
+            result["warnings"] = warnings
+        return result
 
     except Exception as e:
         for stage in stages:

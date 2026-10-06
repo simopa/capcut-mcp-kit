@@ -63,6 +63,26 @@ CapCut drafts folder.
 - Replies report the draft's revision; `expected_revision` refuses a change if another client moved
   the draft on. An old draft cannot replace a project edited in CapCut without `overwrite`.
 
+**Commit safety (second review)**
+- One lock per project folder and per draft, shared between processes; every check is repeated
+  under the lock just before writing, and a new folder never replaces one that appeared meanwhile.
+- SQLite owns the drafts: a change starts from the stored revision (compare-and-swap) and the draft,
+  its revision and the reply to its request id are committed together.
+- Existing projects: a full manifest of the timeline files (selector, main timeline, every copy
+  and its hash) taken at opening and compared before writing; no path through a symbolic link.
+- Writes to project folders are journalled: undone on failure, settled after a crash or restart,
+  reconciled when the project was written but the draft could not be recorded.
+- The replaced project stays on the same volume until the new one is in; backups to another volume
+  are copied in full before anything is removed.
+- Media: never overwritten in a project, versioned by the file's size and modification time,
+  copied (not referenced) when inside a folder being replaced.
+- The authorization to replace a folder lives in the draft, not in a marker file; an unknown CapCut
+  state blocks writing; request ids cover create/open, are tied to the call and expire safely.
+- `setup.sh` stops only a backend it can identify by socket, owner and command line; Python
+  environments are built at their final path behind a symlink.
+- Camera `replace` keeps the curve outside its range; ducking holds under speech when the music
+  ends first; the transcript cursor is passed back exactly.
+
 ## Next
 
 **Editing clips already in a project**
