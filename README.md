@@ -103,7 +103,9 @@ Conventions:
 - **Transitions** go on the *earlier* clip: they lead from that clip into the next one.
 - **Tracks:** items on one track cannot overlap in time. Give a second title, a picture-in-picture
   clip or a second audio a different `track_name`.
-- **Camera moves** start and end on the clip's own framing, so they only affect their range; with
+- **Camera moves** start and end on the clip's own framing, so they only affect their range; they
+  stack on keyframes already there (`mode: "replace"` redoes a range, `"refuse"` errors instead).
+  `easing` picks smooth, linear, snappy or dramatic motion; very short ranges squeeze the move. With
   `capcut_add_video_without_pauses`, `punch_in_zoom: 1.12` alternates a tighter framing on every
   other piece to hide jump cuts.
 - **Existing projects:** `capcut_open_project` gives a draft that adds new tracks to a project made

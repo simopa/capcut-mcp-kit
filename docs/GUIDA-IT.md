@@ -47,7 +47,9 @@ indietro, avvicinamento lento, colpo su una parola (punch), panoramiche, inclina
 camera a mano, frustate, e gli effetti di CapCut (tremolio, fisheye, messa a fuoco, flash, glitch).
 Funzionano anche attraverso i tagli e tornano sempre all'inquadratura di partenza. Togliendo le
 pause, `punch_in_zoom: 1.12` alterna un'inquadratura più stretta su un pezzo sì e uno no, per
-nascondere i salti.
+nascondere i salti. I movimenti si sommano ai keyframe già presenti; per rifare un movimento sullo
+stesso tratto si usa `mode: "replace"`. `easing` sceglie l'andamento: morbido (smooth), lineare,
+scattante (snappy) o drammatico (dramatic).
 
 ## Progetti esistenti
 

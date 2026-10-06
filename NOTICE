@@ -26,6 +26,9 @@ vectcut-api/
   - capcut_server.py: routes for the above; add_video records clip placement.
   - camera_moves.py (new): virtual camera moves from keyframes (sampled on every
     clip a move overlaps) and CapCut effects; /camera_moves and /add_camera_move.
+    Moves compose with existing and pending keyframes (or replace / refuse), never
+    duplicate timestamps, squeeze into short ranges, offer easing presets, and
+    scale effect strength with intensity.
   - save_draft_impl.py: media under ~/Movies is referenced in place (CapCut is
     sandboxed and can read that folder); a file used by many clips is copied once.
   - downloader.py: local files are cloned copy-on-write on macOS (APFS).
@@ -56,7 +59,7 @@ vectcut-api/
     requests with a non-loopback Host or Origin are refused.
   - tests/test_save_draft_local_paths.py: never writes into the real CapCut folder;
     tests/test_save_draft_safety.py, test_media_analysis.py, test_no_false_success.py,
-    test_draft_store.py, test_existing_project.py (new).
+    test_draft_store.py, test_existing_project.py, test_camera_moves.py (new).
   - pyJianYingDraft/script_file.py: import_srt crashed when no font was given.
   - The upstream mcp-server/ folder (a copy of the project below) is not included.
 

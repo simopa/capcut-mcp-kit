@@ -318,6 +318,12 @@ ${CAMERA_MOVES.keyframes.map(([n, d]) => `  - ${n}: ${d}`).join('\n')}
 Effect moves add a CapCut effect on the "camera_fx" track:
 ${CAMERA_MOVES.effects.map(([n, d]) => `  - ${n}: ${d}`).join('\n')}
 
+Moves stack on keyframes already on the clips (mode "compose"); to redo a move over the same range use
+mode "replace", or "refuse" to error if the range already has keyframes. Keyframes outside the range
+are never changed. Short ranges (min 0.1 s) squeeze the move's shape; every move ends on the
+starting framing. easing shapes keyframe moves: smooth (default), linear, snappy (fast start, soft
+landing), dramatic (slow-fast-slow). For effect moves, intensity scales the effect's strength.
+
 Use the transcript to place moves on meaningful moments: a punch_in on a key sentence, a punch on
 a strong word, push_in during a build-up, shake on an emotional beat. Don't overdo it: a move every
 10-20 seconds reads as edited, constant motion reads as noise.
@@ -327,7 +333,8 @@ Args:
   - start / end (number): Timeline range in seconds
   - intensity (number): 0.3 subtle - 1 default - 2 strong
   - track_name (string): Video track to move (keyframe moves)
-  - flash (boolean): Add a short white flash at the start (good with punch / punch_in)`,
+  - flash (boolean): Add a short white flash at the start (good with punch / punch_in)
+  - mode ('compose' | 'replace' | 'refuse'), easing ('smooth' | 'linear' | 'snappy' | 'dramatic')`,
       inputSchema: z.object({
         draft_id: z.string().min(1),
         move: z.enum(ALL_MOVES),
@@ -335,7 +342,9 @@ Args:
         end: z.number().positive(),
         intensity: z.number().min(0.1).max(3).default(1),
         track_name: z.string().min(1).optional(),
-        flash: z.boolean().default(false)
+        flash: z.boolean().default(false),
+        mode: z.enum(['compose', 'replace', 'refuse']).default('compose'),
+        easing: z.enum(['smooth', 'linear', 'snappy', 'dramatic']).default('smooth')
       }).strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
     },

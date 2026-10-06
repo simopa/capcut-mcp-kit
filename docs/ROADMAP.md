@@ -32,6 +32,12 @@ CapCut drafts folder.
 - Refused while CapCut is open, if the project changed since it was opened, or if its timeline copies
   disagree. Tested on CapCut 9.1 projects, which round-trip byte for byte.
 
+**Keyframes and camera moves**
+- Moves compose with keyframes already on the clip, including queued ones (or `replace` / `refuse`);
+  keyframes outside the range are never touched and no two share a timestamp.
+- Short ranges squeeze the move and always end on the starting framing; easing presets for
+  professional camera movements; effect moves honour intensity and flash.
+
 ## Next
 
 **Safe retries**
@@ -41,11 +47,6 @@ CapCut drafts folder.
 **Editing clips already in a project**
 - Today an opened project can only receive new tracks. Changing its own clips (trim, keyframes,
   camera moves) needs an adapter per clip type, each proven by a no-change round trip first.
-
-**Keyframes and camera moves**
-- An explicit rule when a move overlaps existing keyframes (refuse, replace or compose).
-- Minimum durations for very short moves; effect parameters honoured or refused.
-- Easing presets for professional camera movements.
 
 **Infrastructure**
 - Backend health check with identity and version; one autostart at a time across clients.
