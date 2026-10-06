@@ -123,9 +123,38 @@ CapCut drafts folder.
 
 ## Next
 
-**Editing clips already in a project**
-- Today an opened project can only receive new tracks. Changing its own clips (trim, keyframes,
-  camera moves) needs an adapter per clip type, each proven by a no-change round trip first.
+**Editing clips already in a project: trim and move first**
+
+The project's own timeline stays the source of truth: each edit is an operation recorded in the
+draft (clip id, field, the original value it expects) and applied to the original JSON at save
+time, before the additions. All save and recovery guarantees stay as they are.
+
+1. *Clip inventory (read-only).* `capcut_list_clips`: every clip of the opened project with its id,
+   track, type, timeline start/end, source in/out, speed, file, existing keyframes, and whether it
+   is editable. A clip is editable only if its adapter reads and rewrites it identically (no-change
+   round trip); anything not fully understood is listed but locked, with the reason.
+2. *Edit log and extended check.* At save: original → edits → additions. The check restores the
+   original value of every declared field and removes the additions: the result must be exactly
+   the original timeline, or nothing is written. An edit whose expected value is no longer there
+   (project changed) is refused.
+3. *Timing adapter* (`capcut_edit_clip`: trim start/end, move) for video, photo and audio clips.
+   Only the segment's `target_timerange`/`source_timerange` and the project duration change.
+   Refused with a reason: source beyond the file's length, overlap on the track, speed other
+   than a constant 1× (first version), a transition or intro/outro animation that no longer fits,
+   keyframes that cannot be shifted exactly. No ripple (later clips do not move) in the first
+   version. Keyframe offsets are relative to the clip's start: trimming the start shifts them.
+4. *Proof.* Synthetic tests, a no-change round trip and edit round trips on copies of real projects
+   (read only, in a temporary folder), then a visual check in CapCut.
+
+Seen in the projects analysed (read-only copies, 10 projects, 379 clips): video/photo/audio clips
+carry six kinds of material references (speeds, canvases, placeholder infos, sound channel
+mappings, colors, vocal separations), plus transitions and animations on a few; keyframes are
+linear (`Line`) with offsets relative to the clip start; source ranges stay within the file's
+duration; text clips made by the kit carry references to missing materials (to be locked or
+understood before text editing).
+
+Later adapters: keyframes and camera moves on existing clips, volume, text, deleting clips, speed,
+ripple editing.
 
 ## Later
 

@@ -1,23 +1,28 @@
 # capcut-mcp-kit
 
-Let any AI assistant that speaks MCP (Claude Code, Codex CLI, Cursor, …) assemble **CapCut desktop projects**: cut and
-sequence clips, add titles, subtitles, music, transitions, effects, animations, keyframes and color
-tweaks. The result is a regular CapCut project that you open, polish and export in CapCut.
+**Talk to your AI assistant, get a CapCut project.** Give Claude (or any MCP client: Codex CLI,
+Cursor, …) your raw footage and say what you want. It transcribes the talk on your Mac, cuts the
+pauses, adds subtitles that follow the cuts, music that ducks under your voice, titles, transitions
+and professional camera movements, then saves a real CapCut desktop project you open, polish and
+export.
 
-It bundles two open-source projects, fixed so they actually work together:
+- **Edits by what is said.** Local Whisper transcription (nothing is uploaded; about 9 minutes for
+  a 52-minute talk on an M1), jump cuts in one call, subtitles in sync with the edit.
+- **Works on your own projects.** Open a project you made in CapCut and add titles, music or B-roll
+  on new tracks; what is already there is never touched.
+- **Built not to lose your work.** Nothing is overwritten: previous versions go to the backups,
+  saving waits until CapCut is closed, and a crash at any step leaves the old or the new version,
+  never a mix. Tested by killing the backend after every step, and through five external
+  adversarial reviews.
+- **Local and private.** Everything runs on your Mac; the backend listens on localhost only and
+  requires a token.
 
-- **[VectCutAPI](https://github.com/sun-guannan/VectCutAPI)**: a local Python server (port 9001)
-  that writes CapCut draft files.
-- **[capcut-mcp-server](https://github.com/Atx-Guy/capcut-mcp-server)**: the MCP server that exposes
-  those features as tools.
+Built on [VectCutAPI](https://github.com/sun-guannan/VectCutAPI) and
+[capcut-mcp-server](https://github.com/Atx-Guy/capcut-mcp-server), which did not work together out
+of the box; this kit fixes and extends them (details in [NOTICE](NOTICE)).
 
-Out of the box the two didn't line up: the MCP server read the wrong response field (so no tool
-worked), used parameter names the backend ignores, and offered made-up effect and transition names.
-This kit aligns them, adds a few missing features and saves projects straight into CapCut.
-Details in [NOTICE](NOTICE).
-
-> **Status: 0.1.** Tested on macOS with CapCut desktop 9.1.0 (international). Windows should work for
-> the servers but is untested, and `setup.sh` is macOS-only.
+> **Status: 0.5.** macOS with CapCut desktop 9.1 (international). Windows untested; `setup.sh` is
+> macOS-only.
 
 ## How it works
 
