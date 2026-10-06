@@ -155,7 +155,8 @@ def _blocks_text(result: dict, max_seconds: float = 20) -> str:
 def transcript_page(result: dict, from_time: float = 0, to_time: Optional[float] = None,
                     max_chars: int = 12000) -> dict:
     """One page of the transcript as blocks, without the word timings (which stay in the backend):
-    blocks overlapping [from_time, to_time] up to ~max_chars of text; next_from says where to go on."""
+    blocks overlapping [from_time, to_time] up to ~max_chars of text. next_from is where to go on, to
+    pass back exactly: it is the end of the page's last block, so the next page starts after it."""
     blocks, size, next_from = [], 0, None
     for a, b, t in _blocks(result):
         if b <= from_time or (to_time is not None and a >= to_time):

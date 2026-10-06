@@ -113,3 +113,17 @@ def test_timeline_lists_tracks_with_their_end(client):
     body = call(client, "/timeline", draft_id=draft_id)
     assert body["output"]["tracks"] == [{"name": "text_main", "type": "text", "clips": 1, "end": 4.0},
                                         {"name": "text_main_2", "type": "text", "clips": 1, "end": 7.0}]
+
+
+def test_music_ending_during_speech_stays_ducked():
+    pts = music.duck_curve([(0.0, 20.0)], volume=0.25, level=0.35, start=0, end=10)
+    assert pts == [(0, pytest.approx(0.0875)), (10, pytest.approx(0.0875))]
+
+
+def test_music_range_cut_mid_ramp_follows_the_full_curve():
+    spans = [(2.0, 3.0), (6.0, 8.0)]
+    full = music.duck_curve(spans, volume=1, level=0.2, start=0, end=20)
+    cut = music.duck_curve(spans, volume=1, level=0.2, start=1.9, end=7.0)
+    assert (cut[0][0], cut[-1][0]) == (1.9, 7.0)
+    for t in (1.9, 2.0, 2.5, 3.2, 4.0, 5.9, 6.5, 7.0):
+        assert music._value(cut, t) == pytest.approx(music._value(full, t)), t

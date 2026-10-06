@@ -89,8 +89,10 @@ Pages hold ~${PAGE_CHARS} characters; the reply says where to continue (from_tim
         const t = out.page;
         const body = t.blocks.map((b) => `[${clock(b.start)}–${clock(b.end)}] ${b.text}\n`).join('');
         const header = `Transcript of ${t.source} (${t.language}, ${clock(t.duration)}, ${t.engine} ${t.model})\n\n`;
+        // next_from is passed back exactly: rounding it down would repeat the last block (or the whole page)
+        const range = params.to_time !== undefined ? ` and to_time=${params.to_time}` : '';
         const footer = t.next_from !== null
-          ? `\n[Page ends at ${clock(t.next_from)}: call again with from_time=${Math.floor(t.next_from)} for more]`
+          ? `\n[Page ends at ${clock(t.next_from)}: call again with from_time=${t.next_from}${range} for more]`
           : '\n[End of transcript]';
         return text(header + body + footer);
       } catch (error) {

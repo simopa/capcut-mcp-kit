@@ -56,3 +56,23 @@ def test_transcribe_route_returns_a_page(monkeypatch):
         headers={"Host": "127.0.0.1:9001", "X-CapCut-Kit-Token": "test-token"}).get_json()
     assert body["success"] and body["output"]["page"]["blocks"]
     assert "transcript" not in body["output"]
+
+
+def test_following_next_from_always_advances_and_never_repeats(monkeypatch):
+    import capcut_server
+    t = transcript()
+    t["segments"] = [dict(s, start=s["start"] + 0.37, end=s["end"] + 0.41) for s in t["segments"]]  # odd ends
+    monkeypatch.setattr(ma, "transcribe", lambda *a, **k: {"status": "done", "transcript": t})
+    client = capcut_server.app.test_client()
+    every = [(a, b) for a, b, _ in ma._blocks(t)]
+    seen, cursor = [], 0
+    for _ in range(len(every) + 1):  # one block per page at most: never more pages than blocks
+        page = client.post("/transcribe", json={"path": "/v.mp4", "page": {"from_time": cursor, "max_chars": 1}},
+                           headers={"Host": "127.0.0.1:9001", "X-CapCut-Kit-Token": "test-token"}
+                           ).get_json()["output"]["page"]
+        seen += [(b["start"], b["end"]) for b in page["blocks"]]
+        if page["next_from"] is None:
+            break
+        assert page["next_from"] > cursor
+        cursor = page["next_from"]
+    assert seen == every

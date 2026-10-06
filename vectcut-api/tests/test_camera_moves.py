@@ -156,3 +156,32 @@ def test_flash_works_with_effect_moves():
     draft_id, script = make_draft()
     move(draft_id, "shake", 0, 2, flash=True)
     assert len(script.tracks["camera_fx_flash"].segments) == 1
+
+
+def test_replace_keeps_the_animation_outside_the_range():
+    draft_id, script = make_draft(clips=((0, 10),))
+    seg = script.tracks["main"].segments[0]
+    seg.add_keyframe(KP.scale_x, 0, 1.0)
+    seg.add_keyframe(KP.scale_x, 10_000_000, 2.0)  # 1 -> 2 over the clip
+    move(draft_id, "punch_in", 4, 6, mode="replace")
+    times_unique(seg)
+    for t in (0, 1, 2, 3, 3.5, 4, 6, 6.5, 8, 10):
+        assert at(seg, KP.scale_x, int(t * 1e6)) == pytest.approx(1 + t / 10), t
+    assert at(seg, KP.scale_x, 5_000_000) == pytest.approx(1.18)  # static framing * punch, inside
+
+
+def test_replace_keeps_offsets_outside_and_ignores_clip_edges():
+    draft_id, script = make_draft(clips=((0, 4), (4, 4)))
+    first, second = script.tracks["main"].segments
+    for seg in (first, second):
+        seg.add_keyframe(KP.position_x, 0, 0.0)
+        seg.add_keyframe(KP.position_x, 4_000_000, 0.4)
+    move(draft_id, "pan_left", 3, 5, mode="replace")
+    for seg in (first, second):
+        times_unique(seg)
+    for t in (0, 1, 2.5, 3):
+        assert at(first, KP.position_x, int(t * 1e6)) == pytest.approx(0.1 * t), t
+    for t in (1, 2, 3, 4):
+        assert at(second, KP.position_x, int(t * 1e6)) == pytest.approx(0.1 * t), t
+    # at the cut the pan is continuous, not pinned to the old values
+    assert at(first, KP.position_x, 4_000_000) == pytest.approx(at(second, KP.position_x, 0))

@@ -35,7 +35,8 @@ def speech_spans(draft_id: str, voice_path: str) -> List[Tuple[float, float]]:
 
 
 def duck_curve(spans, volume: float, level: float, start: float, end: float) -> List[Tuple[float, float]]:
-    """Volume points (time, value) over [start, end]."""
+    """Volume points (time, value) over [start, end]: the whole ducking curve sampled on the range,
+    so music that starts or ends during speech stays ducked there."""
     low = volume * level
     merged: List[List[float]] = []
     for s, e in sorted(spans):  # dips whose ramps would touch become one dip
@@ -43,21 +44,13 @@ def duck_curve(spans, volume: float, level: float, start: float, end: float) -> 
             merged[-1][1] = max(merged[-1][1], e)
         else:
             merged.append([s, e])
-    pts = [(start, volume)]
+    full = []
     for s, e in merged:
-        a, b = max(start, s - RAMP_DOWN), min(end, e + RAMP_UP)
-        if b <= start or a >= end:
-            continue
-        if a > pts[-1][0]:
-            pts.append((a, volume))
-        pts.append((max(a, min(s, end)), low))
-        pts.append((max(a, min(e, end)), low))
-        pts.append((b, volume))
-    if pts[-1][0] < end:
-        pts.append((end, pts[-1][1]))
+        full += [(s - RAMP_DOWN, volume), (s, low), (max(s, e), low), (max(s, e) + RAMP_UP, volume)]
     out = []
-    for t, v in pts:  # one value per time, the last wins
-        if out and abs(out[-1][0] - t) < 1e-6:
+    for t in sorted({start, end} | {t for t, _ in full if start < t < end}):
+        v = _value(full, t) if full else volume
+        if out and abs(out[-1][0] - t) < 1e-6:  # one value per time, the last wins
             out[-1] = (t, v)
         else:
             out.append((t, v))

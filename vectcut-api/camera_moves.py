@@ -8,7 +8,8 @@ several clips (e.g. after pause removal): it is sampled on every clip it overlap
 stays continuous across cuts. Values are relative to the clip's framing at each moment: scale
 multiplies it, offsets add to it. With mode="compose" (default) that framing includes keyframes
 already on the clip (an earlier move, a manual keyframe), so moves stack; mode="replace" starts from
-the clip's static framing and replaces keyframes inside the range; mode="refuse" errors if the range
+the clip's static framing and replaces keyframes inside the range, keeping the earlier animation's
+values at the range's edges so it plays unchanged outside; mode="refuse" errors if the range
 already has keyframes. Keyframes outside the range are never touched.
 
 Very short ranges compress a move's shape to fit, and every move ends on the starting framing.
@@ -263,22 +264,35 @@ def add_camera_move(draft_id: str, move: str, start: float, end: float, intensit
                         raise ValueError(f"The range already has {kf_prop.name} keyframes (mode='refuse'); "
                                          f"use mode='compose' to stack or 'replace' to redo")
 
+    edge_us = int(EDGE * 1e6)
     for seg, a, b in overlaps:
         seg_start = seg.target_timerange.start
         for prop, pts in curves.items():
             for kf_prop, static, combine in _targets(seg, prop):
                 existing = _find(seg, kf_prop)
+
+                def value(off):
+                    base = _value_at(existing, off, static) if mode == "compose" else static
+                    return combine(base, _interp(pts, (seg_start + off - s_us) / 1e6))
+
                 # sample at the overlap's edges, the move's own points, and (when composing) the
                 # existing keyframes inside the range so their shape is kept
                 times = {a, b} | {s_us + int(t * 1e6) - seg_start for t, _ in pts}
                 if mode == "compose" and existing:
                     times |= {k.time_offset for k in existing.keyframes}
+                # replace: where the range ends inside the clip, keep the old curve's value on the
+                # edge and cut to the move just inside, so the animation outside is unchanged
+                keep = {}
+                if mode == "replace" and existing and existing.keyframes:
+                    for edge, inner, inside in ((a, a + edge_us, a > 0),
+                                                (b, b - edge_us, b < seg.target_timerange.duration)):
+                        old_v = _value_at(existing, edge, static)
+                        if inside and abs(old_v - value(edge)) > 1e-9:
+                            keep[edge] = old_v
+                            if a < inner < b:
+                                times.add(inner)
                 times = sorted(t for t in times if a <= t <= b)
-                samples = []
-                for off in times:
-                    base = _value_at(existing, off, static) if mode == "compose" else static
-                    move_v = _interp(pts, (seg_start + off - s_us) / 1e6)
-                    samples.append((off, combine(base, move_v)))
+                samples = [(off, keep[off] if off in keep else value(off)) for off in times]
                 _write(seg, kf_prop, samples, a, b)
 
     if flash:
