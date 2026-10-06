@@ -63,8 +63,10 @@ salvare** (se il kit non riesce a capire se è aperto, non salva); se nel fratte
 progetto in CapCut, va riaperto. Se il salvataggio si interrompe a metà, alla chiamata successiva su
 quel draft (o al riavvio del kit) viene completato o annullato: il progetto, i suoi metadati e i
 media restano tutti nella versione vecchia o tutti in quella nuova, mai a metà. Il kit tocca solo
-ciò che quel salvataggio aveva creato: se nel frattempo il progetto è cambiato (per esempio l'hai
-modificato in CapCut), lo lascia com'è e ti dice dove trovare la versione precedente. Se per
+ciò che quel salvataggio aveva creato, e prima controlla che ogni cosa sia ancora nella versione
+vecchia o in quella nuova: se nel frattempo il progetto è cambiato (per esempio l'hai modificato in
+CapCut, hai aggiunto un file o cambiato la timeline principale), non tocca nulla, mette nei backup
+le versioni precedenti rimaste nascoste e ti dice dove si trova ciascuna. Se per
 annullare deve toccare la cartella dei progetti di CapCut, aspetta che CapCut sia chiuso. `capcut_get_timeline`
 mostra i salvataggi rimasti a metà e cosa fare.
 

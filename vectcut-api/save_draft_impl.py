@@ -7,7 +7,7 @@ import os
 import sys
 import pyJianYingDraft as draft
 import shutil
-from util import zip_draft, build_draft_asset_path, source_changed
+from util import zip_draft, build_draft_asset_path, source_changed, content_digest
 from oss import upload_to_oss
 from typing import Dict, Literal
 from draft_store import (get_draft, DraftNotFound, project_lock, until_commit, journal_begin, journal_update,
@@ -135,6 +135,9 @@ def child_dir(parent, name):
 def project_path(root, *parts):
     """root/parts..., refused if it would leave root or pass through a symbolic link (checked for
     every part that exists: a link inside a project could point anywhere)."""
+    if os.path.islink(root):
+        raise SaveDraftError(f"'{os.path.basename(root)}' is a symbolic link: the kit only reads and writes inside "
+                             f"project folders. Nothing was written.")
     path = root
     for part in parts:
         if part in ("", ".", "..") or "/" in part or "\\" in part:
@@ -179,13 +182,14 @@ def backup_root():
         return os.path.expandvars(r"%LOCALAPPDATA%\CapCut MCP Backups")
     return os.path.expanduser("~/Movies/CapCut MCP Backups")
 
-def backup_dest(name):
-    """A new, unused path in the backups folder for a copy of the project `name`."""
+def backup_dest(name, taken=()):
+    """A new, unused path in the backups folder for a copy of the project `name` (and none of
+    `taken`, paths already chosen for other copies)."""
     root = backup_root()
     os.makedirs(root, exist_ok=True)
     base = f"{name} {time.strftime('%Y%m%d-%H%M%S')}"
     dest, n = os.path.join(root, base), 1
-    while os.path.lexists(dest) or os.path.lexists(dest + ".partial"):
+    while os.path.lexists(dest) or os.path.lexists(dest + ".partial") or dest in taken:
         n += 1
         dest = os.path.join(root, f"{base}-{n}")
     return dest
@@ -198,11 +202,14 @@ def clone_tree(src, dst):
         shutil.rmtree(dst, ignore_errors=True)
     shutil.copytree(src, dst, symlinks=True)
 
-def move_to_backup(path, name=None):
-    """Move a folder to the backups instead of deleting it. Returns where it went. On another
-    volume it is copied in full (to a .partial folder renamed once complete) before the original
-    is removed; if the removal fails the backup is complete and the error says what is left."""
-    dest = backup_dest(name or os.path.basename(path))
+def move_to_backup(path, name=None, dest=None):
+    """Move a folder to the backups (to dest, or a new path there) instead of deleting it. Returns
+    where it went. On another volume it is copied in full (to a .partial folder renamed once
+    complete) before the original is removed; if the removal fails the backup is complete and the
+    error says what is left."""
+    dest = dest or backup_dest(name or os.path.basename(path))
+    if os.path.lexists(dest):
+        raise SaveDraftError(f"{dest} already exists")
     try:
         os.rename(path, dest)
     except OSError as e:
@@ -321,7 +328,8 @@ def swap_in(pair, content_file):
     target that was there when checked is renamed to pair["aside"] (same folder: atomic) and
     verified to be the folder checked, with the same timeline; a target absent when checked must
     still be absent. The stage is then renamed in without replacing anything that appeared
-    meanwhile. Raises SaveDraftError with nothing replaced."""
+    meanwhile. Raises SaveDraftError; if a folder took the name between the two renames, the
+    previous version stays at the aside path for the caller to settle (see _settle_replace)."""
     target, stage, aside, old = pair["target"], pair["stage"], pair["aside"], pair["old"]
     name = os.path.basename(target)
     if old["exists"]:
@@ -339,20 +347,34 @@ def swap_in(pair, content_file):
             try:
                 rename_noreplace(aside, target)
             except OSError:
-                # Something took the name between the two renames: it stays, the previous version
-                # goes where it can be seen
-                where, _ = finish_swap(aside, name)
-                raise SaveDraftError(f"A folder named '{name}' appeared while saving and was left as it is; the "
-                                     f"previous version of '{name}' is at {where}. Nothing of this save was kept.")
+                raise SaveDraftError(f"A folder named '{name}' appeared while saving and was left as it is")
         raise SaveDraftError(f"A folder named '{name}' appeared while saving: nothing was replaced, try again")
 
+def _inventory(folder):
+    """Every entry of a folder this save wrote, with the content of each file: what makes it this
+    save's own folder, unchanged (the identity alone does not: files can be edited or added in it)."""
+    out = {}
+    for dirpath, dirnames, files in os.walk(folder):
+        for name in dirnames + files:
+            path = os.path.join(dirpath, name)
+            rel = os.path.relpath(path, folder).replace(os.sep, "/")
+            if os.path.islink(path):
+                out[rel] = "link:" + os.readlink(path)
+            elif os.path.isdir(path):
+                out[rel] = "dir"
+            else:
+                out[rel] = content_digest(path)
+    return out
+
 def _pair_state(pair):
-    """Where a journalled swap stands: "new" (the staged folder is at target), "old" (the target
-    is as it was before the save), "aside" (stopped between the two renames: the previous
-    version is at the aside path, nothing at target) or "foreign" (something else is at target)."""
-    t, old = _identity(pair["target"]), pair["old"]
-    if t is not None and t == pair["new"]["id"]:
-        return "new"
+    """Where a journalled swap stands: "new" (the staged folder is at target, exactly as written),
+    "changed" (it is, but something in it was edited or added since), "old" (the target is as it
+    was before the save), "aside" (stopped between the two renames: the previous version is at the
+    aside path, nothing at target) or "foreign" (something else is at target)."""
+    t, old, new = _identity(pair["target"]), pair["old"], pair["new"]
+    if t is not None and t == new["id"]:
+        return "new" if new.get("inventory") is not None and _inventory(pair["target"]) == new["inventory"] \
+            else "changed"
     if not old["exists"]:
         return "old" if t is None else "foreign"
     if t == old["id"]:
@@ -362,28 +384,50 @@ def _pair_state(pair):
     return "foreign"
 
 def _remove_leftovers(pair):
-    """Remove what this save created and is not in use: its staging folder (before the swap) or
-    the new folder moved out by an undo. Only folders with the staged folder's identity."""
-    new_id = (pair.get("new") or {}).get("id")
-    for path in (pair["stage"], pair["failed"]):
-        if new_id is not None and _identity(path) == new_id:
-            shutil.rmtree(path)
+    """Remove what this save created and is no longer in use. Its staging folder (a hidden path of
+    this save only) by identity; the new folder moved out by an undo only if it is still exactly
+    what the save wrote, otherwise it goes to the backups. Returns notes."""
+    new = pair.get("new") or {}
+    if new.get("id") is not None and _identity(pair["stage"]) == new["id"]:
+        shutil.rmtree(pair["stage"])
+    if new.get("id") is not None and _identity(pair["failed"]) == new["id"]:
+        if new.get("inventory") is not None and _inventory(pair["failed"]) == new["inventory"]:
+            shutil.rmtree(pair["failed"])
+        else:
+            where = move_to_backup(pair["failed"], os.path.basename(pair["target"]))
+            return [f"the version of '{pair['target']}' an interrupted save wrote had changed since; it is at {where}"]
+    return []
 
 def undo_swap(pair):
-    """Put back what swap_in replaced: the new folder (only if it is the one staged) is moved out
-    and removed, the previous version renamed back. Something else at target is not touched."""
+    """Put back what swap_in replaced, for a pair whose state is "new" or "aside": the new folder
+    is moved out (and removed if unchanged), the previous version renamed back. Returns notes."""
     target = pair["target"]
     if _identity(target) == pair["new"]["id"]:
         rename_noreplace(target, pair["failed"])
     if pair["old"]["exists"] and not os.path.lexists(target) and _identity(pair["aside"]) == pair["old"]["id"]:
         rename_noreplace(pair["aside"], target)
-    _remove_leftovers(pair)
+    return _remove_leftovers(pair)
 
-def finish_swap(aside, name):
-    """Move the replaced project to the backups. Returns (where it is, warning or None): if it
-    cannot be moved it stays next to the new one, hidden, and the warning says where."""
+def _retire(op_id, details, pair):
+    """Move the previous version of a target (at its aside path) to the backups, at a destination
+    journalled before the move, so a stop halfway (a copy to another volume) is finished or cleaned
+    up from the journal. Returns (where it is, warning or None): if it cannot be moved it stays
+    next to the target, hidden, and the warning says where."""
+    name = os.path.basename(pair["target"])
+    aside = pair["aside"]
     try:
-        return move_to_backup(aside, name), None
+        if not pair.get("backup"):
+            pair["backup"] = backup_dest(name, taken={p.get("backup") for p in details["pairs"]})
+            journal_update(op_id, details=details)
+        dest = pair["backup"]
+        if os.path.isdir(dest + ".partial") and not os.path.islink(dest + ".partial"):
+            shutil.rmtree(dest + ".partial")  # an earlier attempt stopped while copying
+        if os.path.isdir(dest) and not os.path.islink(dest):
+            # An earlier attempt copied it in full and stopped while removing the original
+            if _identity(aside) == pair["old"]["id"]:
+                shutil.rmtree(aside)
+            return dest, None
+        return move_to_backup(aside, name, dest), None
     except Exception as e:
         where = aside if os.path.lexists(aside) else None
         logger.error(f"Could not move {aside} to the backups: {e}", exc_info=True)
@@ -499,7 +543,13 @@ def verify_references(script, final_dir, stage_dir, avoid=(), existing_ok=False)
 # note says where the previous version is. Undoing anything inside CapCut's projects folder waits
 # until CapCut is known to be closed.
 
-def _settle_replace(op_id, details, script):
+def _settle_replace(op_id, details, script, forward=True):
+    """Settle a save that replaced project folders and did not finish (crash, the draft could not
+    be recorded, or forward=False: the save itself failed and is undone). Every pair is judged
+    before anything is done (_pair_state). If something else changed any of them, nothing is
+    undone: each previous version still hidden is put back or moved to the backups, and the note
+    names where every version is. Otherwise, if all are new (and forward) the save is recorded in
+    the draft; if not, all go back as they were. Returns notes for the user."""
     pairs = details["pairs"]
     if details.get("phase") != "ready":
         # Stopped while preparing: no project folder was touched. The staging folders were
@@ -510,23 +560,39 @@ def _settle_replace(op_id, details, script):
         journal_update(op_id, "rolled_back")
         return []
     states = [_pair_state(pair) for pair in pairs]
-    if "foreign" in states:
+    if all(state == "old" or (state == "foreign" and _identity(pair["aside"]) != pair["old"].get("id"))
+           for pair, state in zip(pairs, states)):
+        # Nothing of this save is in place and no previous version was moved: only leftovers to remove
+        notes = [note for pair in pairs for note in _remove_leftovers(pair)]
+        journal_update(op_id, "rolled_back", details={**details, "notes": notes} if notes else None)
+        return notes
+    if any(state in ("foreign", "changed") for state in states):
         notes = []
         for pair, state in zip(pairs, states):
-            name = os.path.basename(pair["target"])
+            target = pair["target"]
+            where = None
+            if state == "aside" and not os.path.lexists(target):
+                rename_noreplace(pair["aside"], target)
+            elif pair["old"]["exists"] and _identity(pair["aside"]) == pair["old"]["id"]:
+                where, warning = _retire(op_id, details, pair)
+            notes += _remove_leftovers(pair)
+            before = f"; the version before that save is at {where}" if where else ""
             if state == "foreign":
-                note = f"'{pair['target']}' was changed by something else after a save of this draft stopped halfway: it was left as it is"
-                if pair["old"]["exists"] and _identity(pair["aside"]) == pair["old"]["id"]:
-                    where, _ = finish_swap(pair["aside"], name)
-                    note += f"; the version it had before that save is at {where}"
-                notes.append(note)
-            _remove_leftovers(pair)
+                notes.append(f"'{target}' was changed by something else after a save of this draft stopped "
+                             f"halfway: it was left as it is{before}")
+            elif state == "changed":
+                notes.append(f"'{target}' holds the version that save wrote, changed since: it was left as it is and "
+                             f"is not recorded in the draft{before}")
+            elif state == "new":
+                notes.append(f"'{target}' holds the version that save wrote, not recorded in the draft{before}")
+            elif state == "aside":
+                notes.append(f"'{target}' was put back as it was before that save")
         journal_update(op_id, "abandoned", details={**details, "notes": notes})
         return notes
-    if all(state == "new" for state in states):
+    if forward and all(state == "new" for state in states):
         for pair in pairs:
             if pair["old"]["exists"] and _identity(pair["aside"]) == pair["old"]["id"]:
-                finish_swap(pair["aside"], os.path.basename(pair["target"]))
+                _retire(op_id, details, pair)
             _remove_leftovers(pair)
         if script is None:
             journal_update(op_id, "done")  # the draft is gone: nothing to record it in
@@ -539,16 +605,18 @@ def _settle_replace(op_id, details, script):
     if any(state == "new" and pair["in_capcut"] for pair, state in zip(pairs, states)) and \
             capcut_is_running() is not False:
         return [f"A save of this draft stopped halfway; it is undone once CapCut is known to be closed: quit "
-                f"CapCut and call again. Nothing was written meanwhile."]
+                f"CapCut, then make any change to this draft (or restart the backend). Nothing was written meanwhile."]
+    notes = []
     for pair, state in zip(pairs, states):
         if state in ("new", "aside"):
-            undo_swap(pair)
-        _remove_leftovers(pair)
+            notes += undo_swap(pair)
+        else:
+            notes += _remove_leftovers(pair)
     if all(_pair_state(pair) == "old" for pair in pairs):
-        journal_update(op_id, "rolled_back")
-        return []
-    return [f"A save of this draft stopped halfway and could not be fully undone: check "
-            f"{', '.join(p['target'] for p in pairs)}"]
+        journal_update(op_id, "rolled_back", details={**details, "notes": notes} if notes else None)
+        return notes
+    return notes + [f"A save of this draft stopped halfway and could not be fully undone: check "
+                    f"{', '.join(p['target'] for p in pairs)}"]
 
 def settle_saves(draft_id, script):
     """Settle the journalled saves of draft_id that did not finish, recording in script (the
@@ -568,8 +636,12 @@ def settle_saves(draft_id, script):
             details = recorded[1]
             try:
                 if "phase" not in details:
-                    note = (f"A save of this draft by an older version of the kit did not finish; it was left as it "
-                            f"is: check {details.get('dir') or ', '.join(p['target'] for p in details.get('pairs', []))}")
+                    places = [details.get("dir"), details.get("backup")] + \
+                        [p.get(k) for p in details.get("pairs", []) for k in ("target", "aside", "stage")]
+                    places = [p for p in places if p and os.path.lexists(p)]
+                    note = (f"A save of this draft by an older version of the kit did not finish; nothing was changed. "
+                            f"Check these folders by hand (the previous version is in the backups or in a hidden "
+                            f".capcut-mcp-old-* folder): {', '.join(places) or 'none of them exists any more'}")
                     journal_update(op_id, "abandoned", details={**details, "notes": [note]})
                     notes.append(note)
                 elif kind == "replace":
@@ -606,8 +678,8 @@ def ensure_settled(draft_id, folders):
                                  "be settled: this save was not attempted. Nothing was written.")
         if folders & set(details.get("locks") or []):
             raise SaveDraftError(f"A save of another draft ({op_draft}) into the same folder did not finish: it is "
-                                 f"settled at the next call on that draft or the next start of the backend. "
-                                 f"Nothing was written.")
+                                 f"settled by any change to that draft (a capcut_add_* call or capcut_save_draft on "
+                                 f"it) or by restarting the backend. Nothing was written.")
 
 def save_draft_background(draft_id, draft_folder, task_id, project_name=None, auto_deploy=True, overwrite=False):
     """Save a draft. Under the destination folders' locks: the paths it will use are journalled
@@ -709,7 +781,8 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
                 # What is there now (checked again: CapCut does not take the kit's locks) and what
                 # replaces it, journalled before the first rename
                 for pair in pairs:
-                    pair["new"] = {"sha": content_sha, "id": _identity(pair["stage"])}
+                    pair["new"] = {"sha": content_sha, "id": _identity(pair["stage"]),
+                                   "inventory": _inventory(pair["stage"])}
                     pair["old"] = check_replace(pair["target"], saved, overwrite, pair["in_capcut"], content_file)
                 details["phase"] = "ready"
                 journal_update(op_id, details=details)
@@ -723,26 +796,24 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
                     logger.error(f"Could not clean up save {op_id}: {e}", exc_info=True)
                 raise
 
-            swapped = []
             try:
                 for pair in pairs:
                     swap_in(pair, content_file)
-                    swapped.append(pair)
-            except BaseException:
+            except BaseException as e:
+                # Undone with the same checks as a recovery after a crash
                 try:
-                    for pair in reversed(swapped):
-                        undo_swap(pair)
-                    for pair in pairs:
-                        _remove_leftovers(pair)
-                    if all(_pair_state(p) in ("old", "foreign") for p in pairs):
-                        journal_update(op_id, "rolled_back")
-                except Exception as e:
-                    logger.error(f"Could not undo save {op_id}: {e}", exc_info=True)  # settled later from the journal
+                    undo_notes = _settle_replace(op_id, details, None, forward=False)
+                except Exception as undo_error:
+                    logger.error(f"Could not undo save {op_id}: {undo_error}", exc_info=True)
+                    undo_notes = [f"It could not be undone ({undo_error}): it is settled by the next change of this "
+                                  f"draft or by restarting the backend"]
+                if undo_notes:
+                    raise SaveDraftError(f"{e}. " + " ".join(undo_notes)) from e
                 raise
             for pair in pairs:
                 saved[os.path.realpath(pair["target"])] = content_sha
                 if pair["old"]["exists"]:
-                    where, warning = finish_swap(pair["aside"], os.path.basename(pair["target"]))
+                    where, warning = _retire(op_id, details, pair)
                     if where:
                         backups.append(where)
                     if warning:

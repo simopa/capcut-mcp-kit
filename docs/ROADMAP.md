@@ -98,6 +98,17 @@ CapCut drafts folder.
 - Save warnings appear in the Markdown reply too; `capcut_get_timeline` lists saves that stopped
   halfway (pending, or left as they were) with what to do.
 
+**Recovery that proves before it acts (fourth review)**
+- One check, shared by the recovery after a crash and the undo of a failed save, before anything is
+  written, completed or removed: the project folder's identity (no link in its place), the timeline
+  selector and set of copies, every planned file at the old or new version, the full content of
+  every folder the save put in place.
+- On any difference nothing in the project is touched; every previous version still hidden goes to
+  the backups and the note names where each version is. Media are removed on undo only if nothing
+  in the project mentions them.
+- Backup destinations and temporary file names are journalled before use: a stop while copying to
+  another volume or between writing and renaming a file leaves nothing behind.
+
 ## Next
 
 **Editing clips already in a project**

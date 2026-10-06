@@ -163,28 +163,38 @@ Conventions:
   (set `CAPCUT_MCP_STATE_DIR` to move it; folder and files readable only by you), so they survive a
   backend restart. A change runs under a lock shared by every backend process, on the draft as last
   stored; the new draft, its revision and the reply to its request id are stored in one transaction.
-  A change that fails leaves the draft as it was, and an unknown draft ID is an error rather than a
+  A change that fails leaves the draft as it was (except that a save which stopped halfway before it
+  is settled and recorded first, as a change of its own: the revision then moves on by one, and
+  `expected_revision` is checked before that), and an unknown draft ID is an error rather than a
   new empty project. A created or opened draft is stored with the reply to its request id: if that
   fails, neither is kept. A read never brings back an older version of a draft. The stored drafts are Python pickles: do not load a state folder you got from
   someone else.
 - **Saving is journalled, not atomic across files:** a save writes several files and folders. Before
   it creates anything it journals every path it will use; before it changes a project folder it
-  journals what is there (identity and hash of each file or folder) and what replaces it. Each file
-  or folder is written aside and renamed in. If the save fails it is undone; if the backend stops
-  halfway, the next call on that draft (or the next start of the backend) completes it or undoes it
-  from that plan, so the project, its metadata, its media and a `draft_folder` copy end up all at
-  the old version or all at the new one, and the draft records what was written. Recovery only
-  touches what the interrupted save created: if anything else changed the project since (an edit in
-  CapCut, a file someone else put there), it is left as it is and the reply says where the previous
-  version is. Undoing anything in CapCut's projects folder waits until CapCut is known to be closed,
-  and the draft cannot be saved again until then. Warnings (a backup that could not be moved, a save
-  left as it is) are in every reply format, and `capcut_get_timeline` lists the draft's saves still
-  pending or left as they were in the last 7 days, with what to do. CapCut is detected by process name, not by the project it
-  has open.
-- **Media are identified by content:** a local file is named after a hash of its content, so a file
-  replaced at the same path, even with the same size and modification time, is a new material, and
-  every file copied into a project is checked against that hash. Media under `~/Movies` are
-  referenced where they are, so a later change to such a file shows in CapCut.
+  journals what is there and what replaces it: the folder's identity, its timeline selector, the
+  hash of every file it writes, the full content list of every folder it puts in place, each media
+  file it moves in, where the previous version will go in the backups. Each file or folder is
+  written aside and renamed in. If the backend stops halfway, the next change of that draft (or the
+  next start of the backend) completes or undoes the save from that plan, so the project, its
+  metadata, its media and a `draft_folder` copy end up all at the old version or all at the new
+  one, and the draft records what was written. A save that fails is undone the same way.
+  Before doing anything, recovery checks that every journalled item is still the old or the new
+  version. If anything else changed (an edit in CapCut, a file added to a folder, a different main
+  timeline, the project folder moved or replaced by a link), nothing in the project is touched, not
+  even media the save added; previous versions still hidden are moved to the backups, and the note
+  names where every version is. Media the save added are removed on undo only if nothing in the
+  project mentions them. Undoing inside CapCut's projects folder waits until CapCut is known to be
+  closed, and the draft cannot be saved again until then. Warnings are in every reply format, and
+  `capcut_get_timeline` lists the draft's saves still pending or left as they were in the last 7
+  days, with what to do (reading the timeline does not settle them). These checks are tested by
+  killing the backend after every step; a power cut (data not yet on disk) is not tested. CapCut is
+  detected by process name, not by the project it has open.
+- **Media are identified by content:** a local file added with kit 0.5 or later is named after a hash
+  of its content, so a file replaced at the same path, even with the same size and modification
+  time, is a new material, and every file copied into a project is checked against that hash. Media
+  added with kit 0.4 are checked by size and modification time, older ones and http(s) downloads are
+  not checked. Media under `~/Movies` are referenced where they are, so a later change to such a
+  file shows in CapCut.
 - The backend listens on 127.0.0.1 only, refuses requests from web pages, and requires the header
   `X-CapCut-Kit-Token` with the token in `~/Library/Application Support/capcut-mcp-kit/token`
   (created on first start, readable only by you; the MCP server sends it). Only `GET /health` is

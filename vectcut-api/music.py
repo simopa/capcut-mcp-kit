@@ -122,6 +122,7 @@ def timeline(draft_id: str) -> dict:
     """The draft's tracks with where each one ends, to place new items after or over them, and its
     saves that stopped halfway (pending, or left as they were in the last days)."""
     import draft_store
+    unsettled = draft_store.journal_unsettled(draft_id)  # may wait for a save in progress: read first
     rev, script = draft_store.current(draft_id)  # read together: the revision is the one shown
     tracks = []
     for name, t in script.tracks.items():
@@ -131,7 +132,7 @@ def timeline(draft_id: str) -> dict:
                        "end": round(max(s.target_timerange.end for s in t.segments) / 1e6, 3)})
     out = {"draft_id": draft_id, "revision": rev,
            "duration": round(script.duration / 1e6, 3), "tracks": tracks,
-           "unsettled_saves": draft_store.journal_unsettled(draft_id)}
+           "unsettled_saves": unsettled}
     base = getattr(script, "base_project", None)
     if base:
         import json

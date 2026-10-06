@@ -51,18 +51,43 @@ for module in (sd, ep):
 draft_store._commit_change = step(draft_store._commit_change)
 sd.rename_noreplace = step(sd.rename_noreplace)
 os.rename = step(os.rename)
-os.replace = step(os.replace)
+real_replace = os.replace
+def replace(*a, **kw):  # a step before (temporary file written, not yet in place) and after
+    count[0] += 1
+    if count[0] == crash_after:
+        os._exit({crashed})
+    return step(real_replace)(*a, **kw)
+os.replace = replace
+if {exdev!r}:  # the backups are on another volume
+    import errno
+    real_rename = os.rename
+    def cross(src, dst, *a, **kw):
+        if os.path.basename(str(src)).startswith(".capcut-mcp-old-") and not os.path.basename(str(dst)).startswith("."):
+            raise OSError(errno.EXDEV, "Cross-device link")
+        return real_rename(src, dst, *a, **kw)
+    os.rename = cross
+    real_clone = sd.clone_tree
+    def clone(src, dst):  # a step in the middle of the copy
+        os.makedirs(dst)
+        open(os.path.join(dst, "half"), "w").close()
+        count[0] += 1
+        if count[0] == crash_after:
+            os._exit({crashed})
+        shutil.rmtree(dst)
+        real_clone(src, dst)
+    import shutil
+    sd.clone_tree = clone
 import capcut_server
 r = capcut_server.app.test_client().post('/save_draft', json={payload!r}, headers={host!r})
 print(json.dumps(r.get_json()))
 '''
 
 
-def crash_save(env, crash_after, **payload):
+def crash_save(env, crash_after, exdev=False, **payload):
     """Run a save in a child process that dies after step `crash_after`. Returns True if it died,
     False if the save finished first."""
     src = CHILD.format(projects=str(env.projects), crash_after=crash_after, crashed=CRASHED,
-                       payload=payload, host=HOST)
+                       payload=payload, host=HOST, exdev=exdev)
     done = subprocess.run([sys.executable, "-c", src], capture_output=True, text=True, timeout=60,
                           cwd=os.path.dirname(sd.__file__), env=os.environ.copy())
     if done.returncode == CRASHED:
@@ -218,7 +243,8 @@ def test_reconciling_restores_which_media_the_project_holds(env, client, monkeyp
 
 # --- 2-6. A crash at any step ends in the old or the new version ---------------------------------
 
-def test_a_crash_at_any_step_of_replacing_a_project_ends_old_or_new(env, client):
+@pytest.mark.parametrize("exdev", [False, True], ids=["same-volume", "backups-on-another-volume"])
+def test_a_crash_at_any_step_of_replacing_a_project_ends_old_or_new(env, client, exdev):
     outcomes = set()
     for n in range(1, 40):
         d = call(client, "/create_draft", width=1080, height=1920)["output"]["draft_id"]
@@ -226,7 +252,7 @@ def test_a_crash_at_any_step_of_replacing_a_project_ends_old_or_new(env, client)
         name = f"P{n}"
         assert call(client, "/save_draft", draft_id=d, project_name=name)["success"]
         call(client, "/add_text", draft_id=d, text="New", start=1, end=2, track_name="text_2")
-        if not crash_save(env, n, draft_id=d, project_name=name):
+        if not crash_save(env, n, exdev=exdev, draft_id=d, project_name=name):
             break
         notes = settle_after_restart()
 
@@ -234,6 +260,7 @@ def test_a_crash_at_any_step_of_replacing_a_project_ends_old_or_new(env, client)
         assert draft_store.journal_pending() == [], n
         assert call(client, "/timeline", draft_id=d)["output"]["unsettled_saves"] == [], n
         assert hidden(env.projects) == [], (n, hidden(env.projects))
+        assert not list(env.backups.glob("*.partial")), n
         texts = text_values(env.projects / name / "draft_info.json")
         assert texts in (["Old"], ["New", "Old"]), (n, texts)
         outcomes.add(len(texts))
@@ -285,6 +312,7 @@ def test_a_crash_at_any_step_of_saving_into_a_project_ends_old_or_new(env, clien
         assert notes == [], (n, notes)
         assert draft_store.journal_pending() == [], n
         assert hidden(env.projects) == [], (n, hidden(env.projects))
+        assert not list(root.rglob(".capcut-mcp-*")), (n, list(root.rglob(".capcut-mcp-*")))
         copies = {(root / rel).read_bytes() for rel in COPIES}
         assert len(copies) == 1, n
         meta = json.loads((root / "draft_meta_info.json").read_text())["tm_duration"]
@@ -377,3 +405,150 @@ def test_a_crash_between_the_two_renames_puts_the_project_back(env, client):
     assert settle_after_restart() == []
     assert text_values(env.projects / "Tra" / "draft_info.json") == ["Old"]
     assert hidden(env.projects) == [] and draft_store.journal_pending() == []
+
+
+# --- Review 4: recovery acts only on states it can prove are its own ------------------------------
+
+def existing_with_media(env, client, name):
+    root = write_project(env.projects, name, capcut_content())
+    d = call(client, "/open_project", project_name=name)["output"]["draft_id"]
+    assert call(client, "/add_text", draft_id=d, text="Nuovo", start=0, end=10)["success"]
+    assert call(client, "/add_image", draft_id=d, image_url=png(env.tmp / f"{name}.png", (255, 0, 0)), start=0, end=1)["success"]
+    return d, root
+
+
+def mixed_copies(root):
+    return lambda details: details["phase"] == "ready" and len({(root / rel).read_bytes() for rel in COPIES}) > 1
+
+
+def test_a_new_folder_edited_after_a_crash_is_kept(env, client):
+    elsewhere = env.tmp / "export"
+    elsewhere.mkdir()
+    d = call(client, "/create_draft", width=1080, height=1920)["output"]["draft_id"]
+    call(client, "/add_text", draft_id=d, text="Old", start=0, end=1)
+    opts = dict(project_name="Misto", draft_folder=str(elsewhere))
+    assert call(client, "/save_draft", draft_id=d, **opts)["success"]
+    call(client, "/add_text", draft_id=d, text="New", start=1, end=2, track_name="text_2")
+    details = crash_when(env, d, lambda x: x["phase"] == "ready" and
+                         [sd._pair_state(p) for p in x["pairs"]] == ["new", "old"], **opts)
+    first = Path(details["pairs"][0]["target"])
+    (first / "user-file.txt").write_text("irreplaceable")
+
+    notes = settle_after_restart()
+    assert (first / "user-file.txt").read_text() == "irreplaceable"
+    assert text_values(first / "draft_info.json") == ["New", "Old"]
+    assert any("changed since" in n for n in notes), notes
+    assert draft_store.journal_pending() == [] and hidden(elsewhere) == []
+    # The version before is in the backups, and the note says where
+    backup = next(Path(n.rsplit(" at ", 1)[1]) for n in notes if "version before" in n)
+    assert text_values(backup / "draft_info.json") == ["Old"]
+
+
+def test_a_switched_main_timeline_stops_recovery_before_anything_is_written(env, client):
+    d, root = existing_with_media(env, client, "Selettore")
+    details = crash_when(env, d, mixed_copies(root))
+    other = root / "Timelines" / "USER"
+    other.mkdir()
+    new = next((root / rel).read_bytes() for rel, f in details["copies"].items()
+               if existing_project._sha((root / rel).read_bytes()) == f["new"])
+    (other / "draft_info.json").write_bytes(new)
+    (root / "Timelines" / "project.json").write_text(json.dumps({"main_timeline_id": "USER"}))
+    media = root / details["added"][0]["rel"]
+    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+
+    notes = settle_after_restart()
+    assert "Timelines/project.json" in notes[0] and "left as it is" in notes[0]
+    assert {p: p.read_bytes() for p in root.rglob("*") if p.is_file()} == before and media.exists()
+
+
+def test_a_changed_selector_leaves_the_metadata_alone_too(env, client):
+    d, root = existing_with_media(env, client, "Meta")
+    crash_when(env, d, lambda x: x["phase"] == "ready" and all(
+        existing_project._sha((root / rel).read_bytes()) == f["new"] for rel, f in x["copies"].items())
+        and existing_project._sha((root / "draft_meta_info.json").read_bytes()) == x["meta"]["old"])
+    selector = root / "Timelines" / "project.json"
+    selector.write_text(json.dumps({**json.loads(selector.read_text()), "user_edit": True}))
+    meta = (root / "draft_meta_info.json").read_bytes()
+
+    notes = settle_after_restart()
+    assert "left as it is" in notes[0]
+    assert (root / "draft_meta_info.json").read_bytes() == meta
+
+
+def test_recovery_does_not_follow_a_project_replaced_by_a_link(env, client):
+    d, root = existing_with_media(env, client, "Collegato")
+    crash_when(env, d, mixed_copies(root))
+    moved = env.tmp / "outside"
+    root.rename(moved)
+    root.symlink_to(moved, target_is_directory=True)
+    before = {p: p.read_bytes() for p in moved.rglob("*") if p.is_file()}
+
+    notes = settle_after_restart()
+    assert "project folder itself" in notes[0]
+    assert {p: p.read_bytes() for p in moved.rglob("*") if p.is_file()} == before
+
+
+def test_project_path_refuses_a_linked_root(tmp_path):
+    (tmp_path / "real").mkdir()
+    (tmp_path / "link").symlink_to(tmp_path / "real")
+    with pytest.raises(sd.SaveDraftError):
+        sd.project_path(str(tmp_path / "link"), "draft_info.json")
+
+
+def test_a_failed_save_keeps_media_a_changed_timeline_uses(env, client, monkeypatch):
+    d, root = existing_with_media(env, client, "Concorrente")
+    real, count = existing_project._write_atomic, [0]
+    first = root / "Timelines" / "TL-1" / "draft_info.json"  # the first copy written
+
+    def edited_then_fail(path, data, *tmp):
+        count[0] += 1
+        if count[0] == 2:
+            edited = json.loads(first.read_text())
+            edited["user_edit"] = True
+            first.write_text(json.dumps(edited))
+            raise OSError("injected failure")
+        return real(path, data, *tmp)
+    with monkeypatch.context() as m:
+        m.setattr(existing_project, "_write_atomic", edited_then_fail)
+        out = call(client, "/save_draft", draft_id=d)
+
+    assert not out["success"] and "left as it is" in out["error"]
+    content = json.loads(first.read_text())
+    assert content["user_edit"]
+    photo = next(v for v in content["materials"]["videos"] if v.get("type") == "photo")
+    assert Path(photo["path"]).exists()
+    shown = call(client, "/timeline", draft_id=d)["output"]["unsettled_saves"]
+    assert [u["state"] for u in shown] == ["abandoned"]
+
+
+def test_undoing_keeps_media_another_timeline_mentions(env, client):
+    d, root = existing_with_media(env, client, "Citato")
+    details = crash_when(env, d, mixed_copies(root))
+    media = root / details["added"][0]["rel"]
+    other = root / "Timelines" / "OTHER"
+    other.mkdir()
+    (other / "draft_info.json").write_text(json.dumps({"materials": {"videos": [{"path": str(media)}]}}))
+
+    notes = settle_after_restart()
+    assert media.exists() and "was kept" in notes[0]
+    assert {(root / rel).read_bytes() for rel in COPIES} == {(root / COPIES[1]).read_bytes()}
+    assert draft_store.journal_pending() == []
+
+
+def test_a_conflict_on_one_folder_still_accounts_for_the_other(env, client):
+    elsewhere = env.tmp / "export"
+    elsewhere.mkdir()
+    d = call(client, "/create_draft", width=1080, height=1920)["output"]["draft_id"]
+    call(client, "/add_text", draft_id=d, text="Old", start=0, end=1)
+    opts = dict(project_name="Due", draft_folder=str(elsewhere))
+    assert call(client, "/save_draft", draft_id=d, **opts)["success"]
+    call(client, "/add_text", draft_id=d, text="New", start=1, end=2, track_name="text_2")
+    details = crash_when(env, d, lambda x: x["phase"] == "ready" and
+                         [sd._pair_state(p) for p in x["pairs"]] == ["new", "aside"], **opts)
+    Path(details["pairs"][1]["target"]).mkdir()
+
+    notes = settle_after_restart()
+    assert hidden(elsewhere) == [] and hidden(env.projects) == []
+    assert len(notes) == 2 and all("version before that save is at" in n for n in notes), notes
+    for note in notes:
+        assert text_values(Path(note.rsplit(" at ", 1)[1]) / "draft_info.json") == ["Old"]

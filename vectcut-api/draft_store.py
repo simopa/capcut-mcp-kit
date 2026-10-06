@@ -385,9 +385,10 @@ def journal_unsettled(draft_id: str) -> list:
     for state, kind, details, created_at in found:
         details = json.loads(details)
         if state == "pending":
-            note = ("A save of this draft stopped halfway and is not settled yet: it is settled at the next change of "
-                    "this draft or the next start of the backend (once CapCut is closed, if it has to undo "
-                    "something in CapCut's projects folder). The draft cannot be saved until then.")
+            note = ("A save of this draft stopped halfway and is not settled yet. It is settled by any change to "
+                    "this draft (a capcut_add_* call or capcut_save_draft) or by restarting the backend, once CapCut "
+                    "is closed if it has to undo something in CapCut's projects folder. Reading the timeline does "
+                    "not settle it. The draft cannot be saved until then.")
         else:
             note = " ".join(details.get("notes") or ["A save of this draft stopped halfway and was left as it is."])
         out.append({"state": state, "kind": kind, "folders": details.get("locks") or [],
@@ -446,7 +447,7 @@ def _not_recorded(error, ops) -> str:
         return f"{error} (the draft was left unchanged)"
     written = "; ".join(summary for _, summary in ops)
     return (f"{error}. The project folder WAS written ({written}) but the kit could not record it; "
-            f"it is reconciled at the next call on this draft or the next start of the backend")
+            f"it is reconciled by the next change of this draft or by restarting the backend")
 
 
 def _commit_change(draft_id, base_revision, working, ops, request_id=None, fp=None, reply=None):
@@ -476,6 +477,9 @@ def reconcile(draft_id: str) -> list:
         try:
             base_revision, current_script = _current(draft_id)
         except DraftNotFound:
+            if revision(draft_id):  # stored, but by a version of the kit this one cannot read: keep it pending
+                return [f"An unfinished save of draft {draft_id} is kept as it is: the draft was stored by another "
+                        f"version of the kit, which can settle it"]
             return save_draft_impl.settle_saves(draft_id, None)
         working = _copy(current_script)
         held = contextlib.ExitStack()

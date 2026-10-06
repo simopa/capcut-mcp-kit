@@ -70,11 +70,11 @@ def _errors():
     return save_draft_impl
 
 
-def timeline_manifest(project_dir: str) -> dict:
-    """Which files hold the timeline CapCut reads, and their content: {"selector": sha256 of
-    Timelines/project.json or None, "main_timeline_id", "copies": {relative path: sha256}}.
-    Refused if a path goes through a symbolic link, the selector names no timeline, or the copies
-    disagree with each other. Saving compares the whole manifest with the one taken at opening."""
+def _timeline_files(project_dir: str) -> dict:
+    """The timeline files of a project as they are: {"selector": sha256 of Timelines/project.json or
+    None, "main_timeline_id", "copies": {relative path: sha256}}, without judging whether the copies
+    agree. Refused if the folder or a path in it is a symbolic link or the selector names no
+    timeline."""
     sd = _errors()
     if os.path.islink(project_dir) or not os.path.isdir(project_dir):
         raise sd.SaveDraftError(f"'{os.path.basename(project_dir)}' is not a project folder")
@@ -101,12 +101,22 @@ def timeline_manifest(project_dir: str) -> dict:
             if not os.path.isfile(path):
                 raise sd.SaveDraftError(f"{rel} in '{name}' is not a file: it will not be edited")
             copies[rel] = _sha(_read(path))
-    if not copies:
+    return {"selector": selector, "main_timeline_id": main_id, "copies": copies}
+
+
+def timeline_manifest(project_dir: str) -> dict:
+    """Which files hold the timeline CapCut reads, and their content (see _timeline_files).
+    Refused if a path goes through a symbolic link, the selector names no timeline, or the copies
+    disagree with each other. Saving compares the whole manifest with the one taken at opening."""
+    sd = _errors()
+    manifest = _timeline_files(project_dir)
+    name = os.path.basename(project_dir)
+    if not manifest["copies"]:
         raise sd.SaveDraftError(f"'{name}' is not a CapCut project (no {CONTENT_FILE})")
-    if len(set(copies.values())) != 1:
+    if len(set(manifest["copies"].values())) != 1:
         raise sd.SaveDraftError(f"The timeline files of '{name}' disagree with each other: open the project in "
                                 f"CapCut, close it, and try again")
-    return {"selector": selector, "main_timeline_id": main_id, "copies": copies}
+    return manifest
 
 
 def round_trip(raw: bytes):
@@ -215,8 +225,20 @@ def verify_untouched(original: dict, merged: dict, added_ids: set, added_tracks:
         raise sd.SaveDraftError("Internal check failed: the save would have changed existing content; nothing was written")
 
 
-def _write_atomic(path: str, data: bytes):
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".capcut-mcp-")
+def _tmp_path(path: str, op_id: str) -> str:
+    """Where a journalled save writes a file before renaming it over `path`: derived from the
+    operation, so recovery knows every temporary file it may have left."""
+    return os.path.join(os.path.dirname(path), f".capcut-mcp-{op_id[:16]}-{os.path.basename(path)}.tmp")
+
+
+def _write_atomic(path: str, data: bytes, tmp: str = None):
+    """Write data to a temporary file next to path, then rename it over path."""
+    if tmp is None:
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".capcut-mcp-")
+    else:
+        if os.path.isfile(tmp) and not os.path.islink(tmp):
+            os.remove(tmp)  # left by an earlier attempt of the same operation
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
@@ -236,10 +258,10 @@ def _update_meta(raw: bytes, duration: int) -> bytes:
     return SERIALIZERS[fmt](meta).encode("utf-8")
 
 
-def _check_unchanged(project_dir: str, base: dict):
+def _check_unchanged(project_dir: str, base: dict, after: str = " Nothing was written."):
     if timeline_manifest(project_dir) != base["manifest"]:
         raise _errors().SaveDraftError(f"'{base['name']}' changed since it was opened (edited in CapCut?): open it "
-                                       f"again with capcut_open_project. Nothing was written.")
+                                       f"again with capcut_open_project.{after}")
 
 
 def _file_sha(path: str) -> str:
@@ -291,8 +313,10 @@ def _place_assets(script, project_dir: str, stage: str, kept: set) -> list:
 def save_into_existing(draft_id: str, script, task_id: str) -> dict:
     """Add the draft to its project. Under the project's lock: the staging and backup paths are
     journalled before anything is created; once the new files are ready, the plan is completed
-    with every file to write (old and new hash, the new metadata), the identity of every media
-    file to move in and what the draft records once saved; then the project is written."""
+    with the project folder's identity, its timeline selector, every file to write (old and new
+    hash, the new metadata), the identity of every media file to move in and what the draft
+    records once saved; then the project is written. A failure is undone with the same checks as
+    a recovery after a crash (settle)."""
     sd = _errors()
     base = script.base_project
     project_dir, name = base["dir"], base["name"]
@@ -337,6 +361,9 @@ def save_into_existing(draft_id: str, script, task_id: str) -> dict:
 
             details.update(
                 phase="ready",
+                root_id=sd._identity(project_dir),
+                selector=base["manifest"]["selector"],
+                main_timeline_id=base["manifest"]["main_timeline_id"],
                 copies={rel: {"old": old_sha, "new": _sha(data)} for rel in base["manifest"]["copies"]},
                 meta={"old": _sha(meta_old), "new": _sha(meta_new), "data": meta_new.decode("utf-8")}
                 if meta_old is not None else None,
@@ -361,23 +388,23 @@ def save_into_existing(draft_id: str, script, task_id: str) -> dict:
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
                 sd.rename_noreplace(os.path.join(stage, *item["rel"].split("/")), dest)
             # Again, just before the timeline is written
-            _check_unchanged(project_dir, base)
+            _check_unchanged(project_dir, base, after="")
             if meta_old is not None and _sha_or_none(meta_path) != details["meta"]["old"]:
                 raise sd.SaveDraftError(f"'{name}' changed while it was being saved (draft_meta_info.json): "
                                         f"nothing was written")
             for rel in details["copies"]:
-                _write_atomic(sd.project_path(project_dir, *rel.split("/")), data)
+                path = sd.project_path(project_dir, *rel.split("/"))
+                _write_atomic(path, data, _tmp_path(path, op_id))
             if meta_new is not None:
-                _write_atomic(meta_path, meta_new)
+                _write_atomic(meta_path, meta_new, _tmp_path(meta_path, op_id))
         except BaseException as e:
             try:
-                undone = _roll_back(details)
+                notes = settle(op_id, details, None, forward=False)
             except Exception as undo_error:
-                undone, e = False, f"{e} ({undo_error})"
-            if not undone:
-                raise sd.SaveDraftError(f"{e}. The project could not be put back as it was: the version before this "
-                                        f"save is in the backup {backup}")
-            journal_update(op_id, "rolled_back")
+                notes = [f"The save could not be undone ({undo_error}): it is settled at the next change of this draft "
+                         f"or the next start of the backend; the version before it is in {backup}"]
+            if notes:
+                raise sd.SaveDraftError(f"{e}. " + " ".join(notes)) from e
             raise
         finally:
             shutil.rmtree(stage, ignore_errors=True)
@@ -397,37 +424,105 @@ def _planned_files(details: dict) -> dict:
     return files
 
 
-def _roll_back(details: dict) -> bool:
-    """Put the project back as it was before the save: each planned file that holds the new
-    version gets the old one back from the backup (checked to be that version first); the media
-    files the save moved in are removed, only those that are still the very files it moved; the
-    staging folder too. Returns True if no planned file holds the new version any more."""
+def _inspect(details: dict):
+    """Compare the project as it is now with the save's plan, changing nothing. Returns (now,
+    conflicts): the sha256 of each planned file, and what is neither the version before the save
+    nor the one it writes: the project folder itself (moved, replaced, a symbolic link), the
+    timeline selector or the set of timeline copies, any planned file."""
+    sd = _errors()
+    project_dir = details["dir"]
+    if "root_id" not in details:
+        return {}, ["a save planned by an earlier version of the kit"]
+    if os.path.islink(project_dir) or not os.path.isdir(project_dir) or \
+            sd._identity(project_dir) != details["root_id"]:
+        return {}, ["the project folder itself (moved, replaced or a symbolic link)"]
+    try:
+        files = _timeline_files(project_dir)
+    except sd.SaveDraftError as e:
+        return {}, [str(e)]
+    conflicts = []
+    if files["selector"] != details["selector"] or files["main_timeline_id"] != details["main_timeline_id"]:
+        conflicts.append("Timelines/project.json")
+    if set(files["copies"]) != set(details["copies"]):
+        conflicts.append("the set of timeline files")
+    now = {}
+    for rel, f in _planned_files(details).items():
+        now[rel] = _sha_or_none(sd.project_path(project_dir, *rel.split("/")))
+        if now[rel] not in (f["old"], f["new"]):
+            conflicts.append(rel)
+    return now, conflicts
+
+
+def _referenced(project_dir: str, rel: str) -> bool:
+    """True if any file of the project outside its assets folder mentions this media file's name
+    (an asset name carries a content hash, so a mention is a reference)."""
+    needle = os.path.basename(rel).encode("utf-8")
+    for dirpath, dirnames, files in os.walk(project_dir):
+        if dirpath == project_dir:
+            dirnames[:] = [d for d in dirnames if d != "assets"]
+        for fname in files:
+            path = os.path.join(dirpath, fname)
+            if os.path.islink(path) or os.path.getsize(path) > 256 * 1024 * 1024:
+                continue
+            with open(path, "rb") as f:
+                if needle in f.read():
+                    return True
+    return False
+
+
+def _clean_temporary(op_id: str, details: dict):
+    """Remove the temporary files this operation may have left (their names come from the plan)."""
+    sd = _errors()
+    for rel in _planned_files(details):
+        tmp = _tmp_path(sd.project_path(details["dir"], *rel.split("/")), op_id)
+        if os.path.isfile(tmp) and not os.path.islink(tmp):
+            os.remove(tmp)
+    if os.path.isdir(details["stage"]) and not os.path.islink(details["stage"]):
+        shutil.rmtree(details["stage"])
+
+
+def _roll_back(op_id: str, details: dict) -> list:
+    """Put the project back as it was before the save, after _inspect found no conflict: each
+    planned file holding the new version gets the old one back from the backup (every one checked
+    to be that version before anything is written); the media files the save moved in are removed
+    if they are still the very files it moved and nothing in the project mentions them. Returns
+    notes for what had to stay; raises if the project is not the old version afterwards."""
     sd = _errors()
     project_dir, backup = details["dir"], details["backup"]
     files = _planned_files(details)
+    restore = {}
     for rel, f in files.items():
         path = sd.project_path(project_dir, *rel.split("/"))
         if _sha_or_none(path) == f["new"]:
             src = os.path.join(backup, *rel.split("/"))
-            if _sha_or_none(src) != f["old"]:
+            if os.path.islink(src) or _sha_or_none(src) != f["old"]:
                 raise sd.SaveDraftError(f"the backup {backup} does not hold the previous version of {rel}")
-            _write_atomic(path, _read(src))
+            restore[path] = _read(src)
+    for path, data in restore.items():
+        _write_atomic(path, data, _tmp_path(path, op_id))
+    _clean_temporary(op_id, details)  # before looking for mentions: they hold the new timeline
+    notes = []
     for item in details["added"]:
         path = sd.project_path(project_dir, *item["rel"].split("/"))
         if sd._identity(path) == item["id"] and _sha_or_none(path) == item["sha"]:
-            os.remove(path)
-    if os.path.isdir(details["stage"]) and not os.path.islink(details["stage"]):
-        shutil.rmtree(details["stage"])
-    return all(_sha_or_none(sd.project_path(project_dir, *rel.split("/"))) != f["new"] for rel, f in files.items())
+            if _referenced(project_dir, item["rel"]):
+                notes.append(f"{item['rel']} was kept: something in '{details['name']}' uses it")
+            else:
+                os.remove(path)
+    if any(_sha_or_none(sd.project_path(project_dir, *rel.split("/"))) != f["old"] for rel, f in files.items()):
+        raise sd.SaveDraftError(f"'{details['name']}' is not the version before the save after undoing it")
+    return notes
 
 
-def settle(op_id: str, details: dict, script) -> list:
-    """Settle a save into an existing project that did not finish (crash, or the draft could not
-    be recorded), from its journalled plan. Only with CapCut known to be closed, and only if every
-    planned file is the old or the new version: if all timeline copies are new the save is
-    completed (metadata included) and recorded in the draft, with the media it placed; otherwise
-    the project is put back as it was. Anything else means the project changed since: it is left
-    as it is. Returns notes for the user."""
+def settle(op_id: str, details: dict, script, forward: bool = True) -> list:
+    """Settle a save into an existing project that did not finish (crash, the draft could not be
+    recorded, or forward=False: the save itself failed and is undone), from its journalled plan.
+    Only with CapCut known to be closed, and only after _inspect found every planned file at the
+    old or the new version with the project folder and its timeline selector unchanged: then, if
+    all timeline copies are new (and forward), the save is completed (metadata included) and
+    recorded in the draft with the media it placed; otherwise the project is put back as it was.
+    On a conflict nothing in the project is touched (not even media the save added). Returns notes
+    for the user."""
     sd = _errors()
     project_dir, name = details["dir"], details["name"]
     if details["phase"] != "ready":
@@ -440,43 +535,40 @@ def settle(op_id: str, details: dict, script) -> list:
         return []
     if sd.capcut_is_running() is not False:
         return [f"A save of this draft into '{name}' stopped halfway; it is settled once CapCut is known to be "
-                f"closed: quit CapCut and call again. Nothing was written meanwhile."]
-    files = _planned_files(details)
-    now = {rel: _sha_or_none(sd.project_path(project_dir, *rel.split("/"))) for rel in files}
-    foreign = [rel for rel, f in files.items() if now[rel] not in (f["old"], f["new"])]
-    if not foreign and all(now[rel] == f["new"] for rel, f in details["copies"].items()):
+                f"closed: quit CapCut, then make any change to this draft (or restart the backend). Nothing was "
+                f"written meanwhile."]
+    now, conflicts = _inspect(details)
+    if conflicts:
+        if not any("project folder itself" in c for c in conflicts):
+            _clean_temporary(op_id, details)
+        added = [item["rel"] for item in details["added"]
+                 if os.path.lexists(os.path.join(project_dir, *item["rel"].split("/")))]
+        note = (f"'{name}' was changed by something else after a save of this draft stopped halfway "
+                f"({', '.join(conflicts)}): it was left as it is" +
+                (f", including the media that save added ({', '.join(added)})" if added else "") +
+                f"; the version before that save is in {details['backup']}")
+        journal_update(op_id, "abandoned", details={**details, "notes": [note]})
+        return [note]
+    if forward and all(now[rel] == f["new"] for rel, f in details["copies"].items()):
+        _clean_temporary(op_id, details)
         meta = details.get("meta")
         if meta and now["draft_meta_info.json"] == meta["old"]:
             path = sd.project_path(project_dir, "draft_meta_info.json")
-            _write_atomic(path, meta["data"].encode("utf-8"))
-            if _sha_or_none(path) != meta["new"]:
-                raise sd.SaveDraftError(f"draft_meta_info.json of '{name}' could not be completed")
-        manifest = timeline_manifest(project_dir)
-        if manifest != details["manifest_after"]:
-            foreign = ["Timelines/project.json"]
-        else:
-            if os.path.isdir(details["stage"]) and not os.path.islink(details["stage"]):
-                shutil.rmtree(details["stage"])
-            base = getattr(script, "base_project", None) if script is not None else None
-            if base is None:
-                journal_update(op_id, "done")  # the draft is gone: nothing to record it in
-                return []
-            base["manifest"] = manifest
-            base.setdefault("assets", {}).update(details["assets_after"])
-            for material, _ in sd._media_materials(script):
-                if material.material_id in details["assets_after"]:
-                    material.replace_path = details["assets_after"][material.material_id]
-            committed_to_disk(op_id, f"an earlier save into '{name}', reconciled")
+            _write_atomic(path, meta["data"].encode("utf-8"), _tmp_path(path, op_id))
+        now, conflicts = _inspect(details)
+        if conflicts or any(now[rel] != f["new"] for rel, f in _planned_files(details).items()):
+            raise sd.SaveDraftError(f"'{name}' could not be completed: {', '.join(conflicts) or 'metadata'}")
+        base = getattr(script, "base_project", None) if script is not None else None
+        if base is None:
+            journal_update(op_id, "done")  # the draft is gone: nothing to record it in
             return []
-    if foreign:
-        if os.path.isdir(details["stage"]) and not os.path.islink(details["stage"]):
-            shutil.rmtree(details["stage"])
-        note = (f"'{name}' was changed by something else after a save of this draft stopped halfway "
-                f"({', '.join(foreign)}): it was left as it is; the version before that save is in {details['backup']}")
-        journal_update(op_id, "abandoned", details={**details, "notes": [note]})
-        return [note]
-    if _roll_back(details):
-        journal_update(op_id, "rolled_back")
+        base["manifest"] = timeline_manifest(project_dir)
+        base.setdefault("assets", {}).update(details["assets_after"])
+        for material, _ in sd._media_materials(script):
+            if material.material_id in details["assets_after"]:
+                material.replace_path = details["assets_after"][material.material_id]
+        committed_to_disk(op_id, f"an earlier save into '{name}', reconciled")
         return []
-    return [f"A save of this draft into '{name}' stopped halfway and could not be fully undone: the version "
-            f"before it is in {details['backup']}"]
+    notes = _roll_back(op_id, details)
+    journal_update(op_id, "rolled_back", details={**details, "notes": notes} if notes else None)
+    return notes

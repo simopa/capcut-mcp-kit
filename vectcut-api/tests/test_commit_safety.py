@@ -212,11 +212,11 @@ def test_failed_write_into_existing_project_removes_added_media(env, client, mon
     before = snapshot(root)
     real, calls = existing_project._write_atomic, []
 
-    def fail_second(path, data):
+    def fail_second(path, data, *tmp):
         calls.append(path)
         if len(calls) == 2:
             raise OSError(errno.EIO, "I/O error")
-        return real(path, data)
+        return real(path, data, *tmp)
     monkeypatch.setattr(existing_project, "_write_atomic", fail_second)
 
     body = call(client, "/save_draft", draft_id=d)
