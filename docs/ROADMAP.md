@@ -109,6 +109,18 @@ CapCut drafts folder.
 - Backup destinations and temporary file names are journalled before use: a stop while copying to
   another volume or between writing and renaming a file leaves nothing behind.
 
+**Recovery conflicts and backup verification (fifth review)**
+- A replacement compares inventories of the old folder and the new one. Changed old folders or
+  asides block destructive rollback of the other destination.
+- An existing backup is accepted only with the expected identity and complete inventory. EXDEV
+  copies use an exclusively created, journalled staging container; cleanup keeps foreign or edited
+  partial copies and reports them. A completed backup can safely finish an interrupted removal of
+  the original when every remaining entry is still present in that backup.
+- A new timeline is adopted only while its newly installed media still match the plan. Reference
+  scans keep media when files are too large, unreadable, linked, binary or use Unicode escapes.
+- Unsafe paths become reported conflicts even when temporary cleanup cannot finish. Regression
+  tests cover all five findings, corrupted backups and removal interrupted after a complete copy.
+
 ## Next
 
 **Editing clips already in a project**

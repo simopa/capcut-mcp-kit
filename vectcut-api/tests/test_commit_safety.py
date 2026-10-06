@@ -333,12 +333,11 @@ def test_backup_on_another_volume_keeps_the_new_project_whole(env, client, monke
     assert call(client, "/save_draft", draft_id=d, project_name="Volume")["success"]
     call(client, "/add_text", draft_id=d, text="Due", start=1, end=2, track_name="t2")
 
-    real_rename, real_rmtree = os.rename, save_draft_impl.shutil.rmtree
+    real_rename, real_rmtree = save_draft_impl.rename_noreplace, save_draft_impl.shutil.rmtree
 
     def rename(src, dst, *a, **k):
-        if str(dst).startswith(str(env.backups)) and not str(dst).endswith(".partial"):
-            if not str(src).endswith(".partial"):
-                raise OSError(errno.EXDEV, "Cross-device link")
+        if Path(src).name.startswith(".capcut-mcp-old-") and str(dst).startswith(str(env.backups)):
+            raise OSError(errno.EXDEV, "Cross-device link")
         return real_rename(src, dst, *a, **k)
 
     def rmtree(path, *a, **k):
@@ -346,7 +345,7 @@ def test_backup_on_another_volume_keeps_the_new_project_whole(env, client, monke
             raise OSError(errno.EACCES, "Permission denied")
         return real_rmtree(path, *a, **k)
     with monkeypatch.context() as m:
-        m.setattr(save_draft_impl.os, "rename", rename)
+        m.setattr(save_draft_impl, "rename_noreplace", rename)
         m.setattr(save_draft_impl.shutil, "rmtree", rmtree)
         body = call(client, "/save_draft", draft_id=d, project_name="Volume")
 

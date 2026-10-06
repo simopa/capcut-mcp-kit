@@ -438,7 +438,7 @@ def _inspect(details: dict):
         return {}, ["the project folder itself (moved, replaced or a symbolic link)"]
     try:
         files = _timeline_files(project_dir)
-    except sd.SaveDraftError as e:
+    except (OSError, sd.SaveDraftError) as e:
         return {}, [str(e)]
     conflicts = []
     if files["selector"] != details["selector"] or files["main_timeline_id"] != details["main_timeline_id"]:
@@ -447,38 +447,83 @@ def _inspect(details: dict):
         conflicts.append("the set of timeline files")
     now = {}
     for rel, f in _planned_files(details).items():
-        now[rel] = _sha_or_none(sd.project_path(project_dir, *rel.split("/")))
+        try:
+            now[rel] = _sha_or_none(sd.project_path(project_dir, *rel.split("/")))
+        except (OSError, sd.SaveDraftError) as e:
+            now[rel] = None
+            conflicts.append(f"{rel}: {e}")
+            continue
         if now[rel] not in (f["old"], f["new"]):
             conflicts.append(rel)
+    # Once any new timeline is in place it needs every media file the plan installed.
+    # Before the first write (or after a completed rollback), missing/unrelated assets are
+    # allowed: the save may never have moved them, and rollback must leave those alone.
+    needs_media = any(now.get(rel) == f["new"] and f["new"] != f["old"]
+                      for rel, f in details["copies"].items())
+    if needs_media:
+        for item in details["added"]:
+            try:
+                path = sd.project_path(project_dir, *item["rel"].split("/"))
+                valid = sd._identity(path) == item["id"] and _sha_or_none(path) == item["sha"]
+            except (OSError, sd.SaveDraftError):
+                valid = False
+            if not valid:
+                conflicts.append(f"{item['rel']} (media missing, replaced or changed)")
     return now, conflicts
 
 
 def _referenced(project_dir: str, rel: str) -> bool:
-    """True if any file of the project outside its assets folder mentions this media file's name
-    (an asset name carries a content hash, so a mention is a reference)."""
+    """True when the media is mentioned OR the scan cannot rule out a reference.
+    JSON escapes, binary/unreadable files, links and files above the read limit are uncertain,
+    never evidence that an asset is unused. False permits deletion, so err towards keeping it.
+    Plain UTF-8 text and unescaped JSON can be checked by the literal content-hashed basename.
+    """
     needle = os.path.basename(rel).encode("utf-8")
-    for dirpath, dirnames, files in os.walk(project_dir):
-        if dirpath == project_dir:
-            dirnames[:] = [d for d in dirnames if d != "assets"]
-        for fname in files:
-            path = os.path.join(dirpath, fname)
-            if os.path.islink(path) or os.path.getsize(path) > 256 * 1024 * 1024:
-                continue
-            with open(path, "rb") as f:
-                if needle in f.read():
+    def unreadable(error):
+        raise error
+    try:
+        for dirpath, dirnames, files in os.walk(project_dir, onerror=unreadable):
+            if dirpath == project_dir:
+                dirnames[:] = [d for d in dirnames if d != "assets"]
+            if any(os.path.islink(os.path.join(dirpath, d)) for d in dirnames):
+                return True
+            for fname in files:
+                path = os.path.join(dirpath, fname)
+                if os.path.islink(path) or not os.path.isfile(path) or os.path.getsize(path) > 256 * 1024 * 1024:
                     return True
+                with open(path, "rb") as f:
+                    data = f.read(256 * 1024 * 1024 + 1)
+                if len(data) > 256 * 1024 * 1024 or needle in data or b"\\u" in data or b"\x00" in data:
+                    return True
+                data.decode("utf-8")  # Unknown encodings cannot prove the absence of references.
+    except (OSError, UnicodeError):
+        return True
     return False
 
 
-def _clean_temporary(op_id: str, details: dict):
+def _clean_temporary(op_id: str, details: dict, best_effort=False):
     """Remove the temporary files this operation may have left (their names come from the plan)."""
     sd = _errors()
+    notes = []
     for rel in _planned_files(details):
-        tmp = _tmp_path(sd.project_path(details["dir"], *rel.split("/")), op_id)
-        if os.path.isfile(tmp) and not os.path.islink(tmp):
-            os.remove(tmp)
+        try:
+            if sd._identity(details["dir"]) != details.get("root_id"):
+                raise sd.SaveDraftError("the project folder's identity changed")
+            tmp = _tmp_path(sd.project_path(details["dir"], *rel.split("/")), op_id)
+            if os.path.isfile(tmp) and not os.path.islink(tmp):
+                os.remove(tmp)
+        except (OSError, sd.SaveDraftError) as e:
+            if not best_effort:
+                raise
+            notes.append(f"Temporary files for {rel} were left for manual inspection ({e})")
     if os.path.isdir(details["stage"]) and not os.path.islink(details["stage"]):
-        shutil.rmtree(details["stage"])
+        try:
+            shutil.rmtree(details["stage"])
+        except OSError as e:
+            if not best_effort:
+                raise
+            notes.append(f"Staging folder {details['stage']} was kept ({e})")
+    return notes
 
 
 def _roll_back(op_id: str, details: dict) -> list:
@@ -506,7 +551,8 @@ def _roll_back(op_id: str, details: dict) -> list:
         path = sd.project_path(project_dir, *item["rel"].split("/"))
         if sd._identity(path) == item["id"] and _sha_or_none(path) == item["sha"]:
             if _referenced(project_dir, item["rel"]):
-                notes.append(f"{item['rel']} was kept: something in '{details['name']}' uses it")
+                notes.append(f"{item['rel']} was kept: something in '{details['name']}' uses it "
+                             f"or a reference could not be ruled out")
             else:
                 os.remove(path)
     if any(_sha_or_none(sd.project_path(project_dir, *rel.split("/"))) != f["old"] for rel, f in files.items()):
@@ -539,16 +585,15 @@ def settle(op_id: str, details: dict, script, forward: bool = True) -> list:
                 f"written meanwhile."]
     now, conflicts = _inspect(details)
     if conflicts:
-        if not any("project folder itself" in c for c in conflicts):
-            _clean_temporary(op_id, details)
-        added = [item["rel"] for item in details["added"]
-                 if os.path.lexists(os.path.join(project_dir, *item["rel"].split("/")))]
+        cleanup_notes = _clean_temporary(op_id, details, best_effort=True)
+        added = [item["rel"] for item in details["added"]]
         note = (f"'{name}' was changed by something else after a save of this draft stopped halfway "
                 f"({', '.join(conflicts)}): it was left as it is" +
-                (f", including the media that save added ({', '.join(added)})" if added else "") +
+                (f"; no media from its plan were removed ({', '.join(added)})" if added else "") +
                 f"; the version before that save is in {details['backup']}")
-        journal_update(op_id, "abandoned", details={**details, "notes": [note]})
-        return [note]
+        notes = [note] + cleanup_notes
+        journal_update(op_id, "abandoned", details={**details, "notes": notes})
+        return notes
     if forward and all(now[rel] == f["new"] for rel, f in details["copies"].items()):
         _clean_temporary(op_id, details)
         meta = details.get("meta")

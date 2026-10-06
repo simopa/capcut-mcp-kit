@@ -301,7 +301,7 @@ def check_replace(target, saved, overwrite, in_capcut, content_file="draft_info.
     """Refuse to replace a folder this draft did not save, or that changed since this draft saved
     it (unless overwrite), and any CapCut project while CapCut is open (or might be). Returns what
     is at target as checked, for the swap to verify again: {"exists": False}, or {"exists": True,
-    "id": its identity, "sha": sha256 of its timeline or None}."""
+    "id": its identity, "sha": sha256 of its timeline or None, "inventory": every entry's content}."""
     if not os.path.lexists(target):
         return {"exists": False}
     name = os.path.basename(target)
@@ -321,7 +321,7 @@ def check_replace(target, saved, overwrite, in_capcut, content_file="draft_info.
             f"it anyway (the edited version is moved to {backup_root()}, not deleted).")
     if in_capcut:
         ensure_capcut_closed(f"replacing '{name}'", " Saving under a new project_name works while CapCut is open.")
-    return {"exists": True, "id": _identity(target), "sha": current}
+    return {"exists": True, "id": _identity(target), "sha": current, "inventory": _inventory(target)}
 
 def swap_in(pair, content_file):
     """Put the staging folder at the target, along the paths journalled beforehand in pair. A
@@ -337,7 +337,7 @@ def swap_in(pair, content_file):
             rename_noreplace(target, aside)
         except OSError:
             raise SaveDraftError(f"'{name}' changed while it was being saved: nothing was replaced, try again")
-        if _identity(aside) != old["id"] or _file_sha(os.path.join(aside, content_file)) != old["sha"]:
+        if _identity(aside) != old["id"] or not _matches_inventory(aside, old.get("inventory")):
             rename_noreplace(aside, target)
             raise SaveDraftError(f"'{name}' changed while it was being saved: nothing was replaced, try again")
     try:
@@ -354,7 +354,11 @@ def _inventory(folder):
     """Every entry of a folder this save wrote, with the content of each file: what makes it this
     save's own folder, unchanged (the identity alone does not: files can be edited or added in it)."""
     out = {}
-    for dirpath, dirnames, files in os.walk(folder):
+    def unreadable(error):
+        raise error
+    if os.path.islink(folder) or not os.path.isdir(folder):
+        raise SaveDraftError(f"{folder} is not a regular project folder")
+    for dirpath, dirnames, files in os.walk(folder, onerror=unreadable):
         for name in dirnames + files:
             path = os.path.join(dirpath, name)
             rel = os.path.relpath(path, folder).replace(os.sep, "/")
@@ -366,21 +370,36 @@ def _inventory(folder):
                 out[rel] = content_digest(path)
     return out
 
+def _matches_inventory(folder, expected):
+    """Missing plans and unreadable folders never count as an unchanged version."""
+    try:
+        return expected is not None and _inventory(folder) == expected
+    except (OSError, SaveDraftError):
+        return False
+
 def _pair_state(pair):
     """Where a journalled swap stands: "new" (the staged folder is at target, exactly as written),
     "changed" (it is, but something in it was edited or added since), "old" (the target is as it
     was before the save), "aside" (stopped between the two renames: the previous version is at the
     aside path, nothing at target) or "foreign" (something else is at target)."""
     t, old, new = _identity(pair["target"]), pair["old"], pair["new"]
+    if old["exists"] and os.path.lexists(pair["aside"]) and \
+            (_identity(pair["aside"]) != old["id"] or not _matches_inventory(pair["aside"], old.get("inventory"))):
+        # A verified completed backup can coexist with an aside partially removed by a crash.
+        # Recovery may finish that removal, but must never restore the partial aside.
+        if not (t == new["id"] and pair.get("backup") and
+                _identity(pair["backup"]) in (old["id"], pair.get("backup_id")) and
+                _matches_inventory(pair["backup"], old.get("inventory"))):
+            return "foreign"
     if t is not None and t == new["id"]:
         return "new" if new.get("inventory") is not None and _inventory(pair["target"]) == new["inventory"] \
             else "changed"
     if not old["exists"]:
         return "old" if t is None else "foreign"
     if t == old["id"]:
-        return "old"
+        return "old" if _matches_inventory(pair["target"], old.get("inventory")) else "foreign"
     if t is None and _identity(pair["aside"]) == old["id"]:
-        return "aside"
+        return "aside" if _matches_inventory(pair["aside"], old.get("inventory")) else "foreign"
     return "foreign"
 
 def _remove_leftovers(pair):
@@ -408,6 +427,39 @@ def undo_swap(pair):
         rename_noreplace(pair["aside"], target)
     return _remove_leftovers(pair)
 
+def _partial_copy_matches(folder, reference, expected):
+    """Whether an interrupted copy contains only entries/prefixes still held in reference.
+    A partial with anything else is kept: its directory identity does not own later edits.
+    """
+    def unreadable(error):
+        raise error
+    try:
+        if os.path.islink(folder) or not os.path.isdir(folder):
+            return False
+        for parent, dirs, files in os.walk(folder, onerror=unreadable):
+            for name in dirs + files:
+                path = os.path.join(parent, name)
+                rel = os.path.relpath(path, folder).replace(os.sep, "/")
+                if rel not in expected:
+                    return False
+                if os.path.islink(path):
+                    if expected[rel] != "link:" + os.readlink(path):
+                        return False
+                elif os.path.isdir(path):
+                    if expected[rel] != "dir":
+                        return False
+                else:
+                    src = project_path(reference, *rel.split("/"))
+                    if not os.path.isfile(path) or not os.path.isfile(src):
+                        return False
+                    with open(path, "rb") as partial_file, open(src, "rb") as complete_file:
+                        for chunk in iter(lambda: partial_file.read(1 << 20), b""):
+                            if chunk != complete_file.read(len(chunk)):
+                                return False
+        return True
+    except (OSError, SaveDraftError):
+        return False
+
 def _retire(op_id, details, pair):
     """Move the previous version of a target (at its aside path) to the backups, at a destination
     journalled before the move, so a stop halfway (a copy to another volume) is finished or cleaned
@@ -416,18 +468,72 @@ def _retire(op_id, details, pair):
     name = os.path.basename(pair["target"])
     aside = pair["aside"]
     try:
+        expected = pair["old"].get("inventory")
+        if expected is None:
+            raise SaveDraftError("the earlier save did not record the previous folder's inventory; keep it for manual recovery")
         if not pair.get("backup"):
             pair["backup"] = backup_dest(name, taken={p.get("backup") for p in details["pairs"]})
             journal_update(op_id, details=details)
         dest = pair["backup"]
-        if os.path.isdir(dest + ".partial") and not os.path.islink(dest + ".partial"):
-            shutil.rmtree(dest + ".partial")  # an earlier attempt stopped while copying
-        if os.path.isdir(dest) and not os.path.islink(dest):
-            # An earlier attempt copied it in full and stopped while removing the original
-            if _identity(aside) == pair["old"]["id"]:
+        partial = dest + ".partial"
+
+        def clean_partial(reference):
+            if not os.path.lexists(partial):
+                return
+            if not os.path.islink(partial) and os.path.isdir(partial) and not os.listdir(partial):
+                # Empty: it holds no data, whoever made it (a stop right after creating it, before
+                # it was journalled). rmdir fails if anything appears in it meanwhile.
+                os.rmdir(partial)
+                return
+            if os.path.islink(partial) or _identity(partial) != pair.get("backup_partial_id"):
+                raise SaveDraftError(f"{partial} is not a staging folder owned by this save; it was left as it is")
+            entries = os.listdir(partial)
+            if entries and (entries != ["project"] or not _partial_copy_matches(
+                    os.path.join(partial, "project"), reference, expected)):
+                raise SaveDraftError(f"{partial} contains data not proven to be in the original; it was kept")
+            shutil.rmtree(partial)
+
+        def finish_copy():
+            # Identity proves ownership; content proves completeness. Neither alone suffices.
+            if _identity(dest) not in (pair["old"]["id"], pair.get("backup_id")) or \
+                    not _matches_inventory(dest, expected):
+                raise SaveDraftError(f"{dest} is not a verified complete backup; the previous version was kept")
+            clean_partial(dest)
+            if os.path.lexists(aside):
+                if _identity(aside) != pair["old"]["id"]:
+                    raise SaveDraftError(f"{aside} was replaced; it was kept")
+                # A crash during rmtree can leave only a subset. Every remaining entry must
+                # still be in the verified backup, with identical content, before removal.
+                remaining = _inventory(aside)
+                if any(expected.get(rel) != value for rel, value in remaining.items()):
+                    raise SaveDraftError(f"{aside} changed after the backup; it was kept")
                 shutil.rmtree(aside)
             return dest, None
-        return move_to_backup(aside, name, dest), None
+
+        if os.path.lexists(dest):
+            return finish_copy()
+        if not _matches_inventory(aside, expected):
+            raise SaveDraftError(f"{aside} changed since the save was planned; it was kept")
+        clean_partial(aside)
+        try:
+            rename_noreplace(aside, dest)
+            return dest, None
+        except OSError as e:
+            if e.errno != errno.EXDEV:
+                raise
+        # An exclusively created container lets a restart distinguish our incomplete copy
+        # from a foreign .partial. Copy inside it, then publish the verified child unchanged.
+        os.mkdir(partial)
+        pair["backup_partial_id"] = _identity(partial)
+        journal_update(op_id, details=details)
+        copied = os.path.join(partial, "project")
+        clone_tree(aside, copied)
+        if not _matches_inventory(copied, expected) or not _matches_inventory(aside, expected):
+            raise SaveDraftError("the previous version changed while its backup was being copied; both were kept")
+        pair["backup_id"] = _identity(copied)
+        journal_update(op_id, details=details)
+        rename_noreplace(copied, dest)
+        return finish_copy()
     except Exception as e:
         where = aside if os.path.lexists(aside) else None
         logger.error(f"Could not move {aside} to the backups: {e}", exc_info=True)
@@ -560,7 +666,17 @@ def _settle_replace(op_id, details, script, forward=True):
         journal_update(op_id, "rolled_back")
         return []
     states = [_pair_state(pair) for pair in pairs]
-    if all(state == "old" or (state == "foreign" and _identity(pair["aside"]) != pair["old"].get("id"))
+    if not (forward and all(state == "new" for state in states)):
+        # A retired old version is safe in its backup, but cannot be restored by undo_swap.
+        # If the destinations are now mixed, preserve them rather than remove a target whose
+        # aside is absent or only partly left after an interrupted retirement.
+        for i, (pair, state) in enumerate(zip(pairs, states)):
+            old = pair["old"]
+            if state == "new" and old["exists"] and (_identity(pair["aside"]) != old["id"] or
+                    not _matches_inventory(pair["aside"], old.get("inventory"))):
+                states[i] = "foreign"
+    if all(state == "old" or (state == "foreign" and _identity(pair["target"]) != pair["new"]["id"]
+                             and _identity(pair["aside"]) != pair["old"].get("id"))
            for pair, state in zip(pairs, states)):
         # Nothing of this save is in place and no previous version was moved: only leftovers to remove
         notes = [note for pair in pairs for note in _remove_leftovers(pair)]
@@ -573,13 +689,15 @@ def _settle_replace(op_id, details, script, forward=True):
             where = None
             if state == "aside" and not os.path.lexists(target):
                 rename_noreplace(pair["aside"], target)
-            elif pair["old"]["exists"] and _identity(pair["aside"]) == pair["old"]["id"]:
+            elif pair["old"]["exists"] and (_identity(pair["aside"]) == pair["old"]["id"] or pair.get("backup")):
                 where, warning = _retire(op_id, details, pair)
+                if warning:
+                    notes.append(warning)
             notes += _remove_leftovers(pair)
             before = f"; the version before that save is at {where}" if where else ""
             if state == "foreign":
-                notes.append(f"'{target}' was changed by something else after a save of this draft stopped "
-                             f"halfway: it was left as it is{before}")
+                notes.append(f"'{target}' or its previous version no longer matches the interrupted save's "
+                             f"plan: it was left as it is{before}")
             elif state == "changed":
                 notes.append(f"'{target}' holds the version that save wrote, changed since: it was left as it is and "
                              f"is not recorded in the draft{before}")
@@ -590,17 +708,23 @@ def _settle_replace(op_id, details, script, forward=True):
         journal_update(op_id, "abandoned", details={**details, "notes": notes})
         return notes
     if forward and all(state == "new" for state in states):
+        notes = []
         for pair in pairs:
-            if pair["old"]["exists"] and _identity(pair["aside"]) == pair["old"]["id"]:
-                _retire(op_id, details, pair)
-            _remove_leftovers(pair)
+            if pair["old"]["exists"] and (_identity(pair["aside"]) == pair["old"]["id"] or pair.get("backup")):
+                _, warning = _retire(op_id, details, pair)
+                if warning:
+                    notes.append(warning)
+            notes += _remove_leftovers(pair)
+        if notes:
+            journal_update(op_id, "abandoned", details={**details, "notes": notes})
         if script is None:
-            journal_update(op_id, "done")  # the draft is gone: nothing to record it in
-            return []
+            if not notes:
+                journal_update(op_id, "done")  # the draft is gone: nothing to record it in
+            return notes
         for pair in pairs:
             kit_saves(script)[os.path.realpath(pair["target"])] = pair["new"]["sha"]
         committed_to_disk(op_id, "an earlier save, reconciled")
-        return []
+        return notes
     # Not all of it happened: everything goes back as it was
     if any(state == "new" and pair["in_capcut"] for pair, state in zip(pairs, states)) and \
             capcut_is_running() is not False:

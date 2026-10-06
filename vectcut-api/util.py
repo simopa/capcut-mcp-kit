@@ -61,16 +61,18 @@ def url_to_hash(url, length=16):
     return hashlib.sha256(_source_key(url).encode('utf-8')).hexdigest()[:length]
 
 
-_digests = {}  # (real path, dev, inode, size, mtime_ns, ctime_ns) -> sha256 of the content
+_digests = {}  # (dev, inode, size, mtime_ns, ctime_ns) -> sha256 of the content
 
 
 def content_digest(path):
     """sha256 of a file's content. The stat fields only spare reading again, within this process,
     a file nothing has touched since (ctime changes on every write and cannot be set back by a
-    program); they never stand for the content."""
+    program); they never stand for the content. The key is the file, not its path: a file in a
+    folder that was renamed (staging folder put in place, previous version moved aside) is not
+    read again."""
     path = os.path.realpath(os.path.expanduser(str(path)))
     st = os.stat(path)
-    key = (path, st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+    key = (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
     if key not in _digests:
         h = hashlib.sha256()
         with open(path, "rb") as f:

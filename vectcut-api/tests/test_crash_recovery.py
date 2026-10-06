@@ -60,16 +60,18 @@ def replace(*a, **kw):  # a step before (temporary file written, not yet in plac
 os.replace = replace
 if {exdev!r}:  # the backups are on another volume
     import errno
-    real_rename = os.rename
+    real_rename = sd.rename_noreplace
     def cross(src, dst, *a, **kw):
         if os.path.basename(str(src)).startswith(".capcut-mcp-old-") and not os.path.basename(str(dst)).startswith("."):
             raise OSError(errno.EXDEV, "Cross-device link")
         return real_rename(src, dst, *a, **kw)
-    os.rename = cross
+    sd.rename_noreplace = cross
     real_clone = sd.clone_tree
     def clone(src, dst):  # a step in the middle of the copy
         os.makedirs(dst)
-        open(os.path.join(dst, "half"), "w").close()
+        with open(os.path.join(src, "draft_info.json"), "rb") as source:
+            with open(os.path.join(dst, "draft_info.json"), "wb") as partial:
+                partial.write(source.read(32))
         count[0] += 1
         if count[0] == crash_after:
             os._exit({crashed})

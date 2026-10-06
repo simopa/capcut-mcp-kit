@@ -68,7 +68,12 @@ vecchia o in quella nuova: se nel frattempo il progetto è cambiato (per esempio
 CapCut, hai aggiunto un file o cambiato la timeline principale), non tocca nulla, mette nei backup
 le versioni precedenti rimaste nascoste e ti dice dove si trova ciascuna. Se per
 annullare deve toccare la cartella dei progetti di CapCut, aspetta che CapCut sia chiuso. `capcut_get_timeline`
-mostra i salvataggi rimasti a metà e cosa fare.
+mostra i salvataggi rimasti a metà e cosa fare. Il kit verifica identità e contenuto del backup
+prima di eliminare la versione precedente: una cartella estranea o un backup danneggiato non
+autorizzano la cancellazione dell'originale. Durante l'annullamento, se non può escludere che un
+file usi un media (per esempio metadati troppo grandi o non leggibili), conserva il media e lo
+segnala. Possono quindi restare media aggiuntivi dopo un annullamento. Un percorso non sicuro
+viene segnalato come conflitto anche quando impedisce di ripulire i temporanei.
 
 Se hai modificato in CapCut un progetto creato dal kit, il kit non lo sovrascrive più ri-salvando il
 vecchio draft: lo rifiuta e chiede di aprirlo con `capcut_open_project` (oppure `overwrite: true`,

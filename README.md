@@ -172,19 +172,25 @@ Conventions:
 - **Saving is journalled, not atomic across files:** a save writes several files and folders. Before
   it creates anything it journals every path it will use; before it changes a project folder it
   journals what is there and what replaces it: the folder's identity, its timeline selector, the
-  hash of every file it writes, the full content list of every folder it puts in place, each media
-  file it moves in, where the previous version will go in the backups. Each file or folder is
+  hash of every file it writes, the full content list of both old and new folders in a replacement,
+  each media file it moves in, where the previous version will go in the backups. Each file or folder is
   written aside and renamed in. If the backend stops halfway, the next change of that draft (or the
   next start of the backend) completes or undoes the save from that plan, so the project, its
   metadata, its media and a `draft_folder` copy end up all at the old version or all at the new
   one, and the draft records what was written. A save that fails is undone the same way.
   Before doing anything, recovery checks that every journalled item is still the old or the new
-  version. If anything else changed (an edit in CapCut, a file added to a folder, a different main
-  timeline, the project folder moved or replaced by a link), nothing in the project is touched, not
-  even media the save added; previous versions still hidden are moved to the backups, and the note
-  names where every version is. Media the save added are removed on undo only if nothing in the
-  project mentions them. Undoing inside CapCut's projects folder waits until CapCut is known to be
-  closed, and the draft cannot be saved again until then. Warnings are in every reply format, and
+  version. If that check finds a conflict (an edit in a planned timeline, a file added to a replaced
+  folder, a different main timeline, the project folder moved or replaced by a link), the project
+  is preserved, including media the save added; previous versions still hidden are moved to the backups, and the note
+  names where every version is. A backup's identity and full content are verified before its original
+  is removed; a foreign or damaged backup is preserved alongside the original and reported. Interrupted
+  backup copies are removed only when owned by the operation and their remaining data are still in
+  the verified source. Media installed by the save are checked before a new timeline is adopted.
+  On undo, media are kept when referenced or when a reference cannot be ruled out (for example a
+  large, unreadable, binary or escaped metadata file). This can leave extra media after a rollback,
+  with a warning. Path conflicts are reported even if temporary files cannot safely be cleaned up.
+  Undoing inside CapCut's projects folder waits until CapCut is known to be closed, and the draft
+  cannot be saved again until then. Warnings are in every reply format, and
   `capcut_get_timeline` lists the draft's saves still pending or left as they were in the last 7
   days, with what to do (reading the timeline does not settle them). These checks are tested by
   killing the backend after every step; a power cut (data not yet on disk) is not tested. CapCut is
