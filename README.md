@@ -31,7 +31,7 @@ it. **CapCut only rescans its project list at launch: restart CapCut to see a ne
 
 **Content-aware editing.** The kit transcribes speech locally with Whisper (mlx-whisper on Apple
 Silicon: about 9 minutes for a 52-minute talk on an M1; nothing is uploaded). The transcript is saved
-next to the video (`<name>.transcript.json` and a readable `<name>.transcript.txt`), so each file is
+next to the video (`talk.mp4.transcript.json` and a readable `talk.mp4.transcript.txt`), so each file is
 transcribed once. From it the assistant can cut by what is said, remove pauses (jump cuts) in one
 call, and add subtitles that follow the edit.
 
@@ -90,7 +90,7 @@ session. Its log is `vectcut-api/server.log`. To start it by hand instead, run `
 | `capcut_detect_pauses` | Preview speech vs pauses and how much would be cut |
 | `capcut_add_video_without_pauses` | Add a video with its pauses removed (jump cuts), in one call |
 | `capcut_add_auto_subtitles` | Subtitles from the transcript, short social-style lines, aligned to the edit |
-| `capcut_add_camera_move` | Virtual camera moves over a time range: punch-in, zoom in/out, push, pull, punch, bounce, pans, tilts, rotate-in, dutch tilt, handheld drift, whips (keyframes, continuous across cuts) and CapCut effects (shake, lens zoom, fisheye, focus pull, flash, glitch…) |
+| `capcut_add_camera_move` | Professional virtual camera moves over a time range: punch-in, zoom in/out, push, pull, punch, bounce, pans, tilts, rotate-in, dutch tilt, handheld drift, whips (keyframes, continuous across cuts) and CapCut effects (shake, lens zoom, fisheye, focus pull, flash, glitch…) |
 
 Conventions:
 

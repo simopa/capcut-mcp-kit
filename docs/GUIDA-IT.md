@@ -32,8 +32,8 @@ così Claude e Codex possono usarlo insieme. Per avviarlo a mano c'è `./start-s
 ## Trascrizione, pause e sottotitoli
 
 - La trascrizione gira sul Mac con Whisper (su M1 circa 9 minuti per 52 minuti di parlato), niente
-  viene caricato online. Viene salvata accanto al video: `nome.transcript.json` (dati con i tempi
-  di ogni parola) e `nome.transcript.txt` (testo leggibile). Ogni video si trascrive una volta sola.
+  viene caricato online. Viene salvata accanto al video: `video.mp4.transcript.json` (dati con i tempi
+  di ogni parola) e `video.mp4.transcript.txt` (testo leggibile). Ogni video si trascrive una volta sola.
 - Con la trascrizione l'assistente può tagliare in base a cosa dici, togliere le pause in un colpo
   solo e aggiungere sottotitoli che seguono i tagli.
 - CapCut può aprire da solo solo i file nella cartella Filmati (`~/Movies`): lì i video vengono usati
@@ -41,12 +41,13 @@ così Claude e Codex possono usarlo insieme. Per avviarlo a mano c'è `./start-s
 
 ## Movimenti di camera
 
-`capcut_add_camera_move` aggiunge movimenti "virtuali" su un tratto di tempo: avvicinamento netto e
-ritorno (punch_in), zoom morbido avanti e indietro, avvicinamento lento, colpo su una parola (punch),
-panoramiche, inclinazioni, effetto camera a mano, frustate, e gli effetti di CapCut (tremolio,
-fisheye, messa a fuoco, flash, glitch). Funzionano anche attraverso i tagli e tornano sempre
-all'inquadratura di partenza. Togliendo le pause, `punch_in_zoom: 1.12` alterna un'inquadratura più
-stretta su un pezzo sì e uno no, per nascondere i salti.
+`capcut_add_camera_move` aggiunge movimenti di camera professionali, "virtuali" (fatti con keyframe
+ed effetti), su un tratto di tempo: avvicinamento netto e ritorno (punch_in), zoom morbido avanti e
+indietro, avvicinamento lento, colpo su una parola (punch), panoramiche, inclinazioni, effetto
+camera a mano, frustate, e gli effetti di CapCut (tremolio, fisheye, messa a fuoco, flash, glitch).
+Funzionano anche attraverso i tagli e tornano sempre all'inquadratura di partenza. Togliendo le
+pause, `punch_in_zoom: 1.12` alterna un'inquadratura più stretta su un pezzo sì e uno no, per
+nascondere i salti.
 
 ## Cosa sapere
 

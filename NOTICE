@@ -37,7 +37,7 @@ vectcut-api/
   - capcut_server.py: the web preview routes are off unless CAPCUT_ENABLE_PREVIEW=1;
     requests with a non-loopback Host or Origin are refused.
   - tests/test_save_draft_local_paths.py: never writes into the real CapCut folder;
-    tests/test_save_draft_safety.py (new).
+    tests/test_save_draft_safety.py and tests/test_media_analysis.py (new).
   - pyJianYingDraft/script_file.py: import_srt crashed when no font was given.
   - The upstream mcp-server/ folder (a copy of the project below) is not included.
 

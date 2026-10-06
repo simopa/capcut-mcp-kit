@@ -309,7 +309,7 @@ Args:
     'capcut_add_camera_move',
     {
       title: 'Add Camera Move',
-      description: `Add a virtual camera move over a time range of the timeline (mMovements-style).
+      description: `Add a virtual camera move over a time range of the timeline (professional camera movements).
 
 Keyframe moves animate the clips on a video track (default "video_main"); a move can span several
 clips, e.g. after pause removal, and stays continuous across the cuts:
