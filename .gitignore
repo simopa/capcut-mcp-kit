@@ -1,5 +1,6 @@
-# Local environments and build output
-vectcut-api/venv/
+# Local environments and build output (venv is a symlink to the active one in venvs/: no trailing slash)
+vectcut-api/venv
+vectcut-api/venvs/
 vectcut-api/.venv/
 capcut-mcp-server/node_modules/
 capcut-mcp-server/dist/
@@ -16,6 +17,7 @@ __pycache__/
 .DS_Store
 
 # setup.sh builds aside and swaps
+vectcut-api/venv.next
 vectcut-api/venv.new/
 vectcut-api/venv.old/
 capcut-mcp-server/.build/
