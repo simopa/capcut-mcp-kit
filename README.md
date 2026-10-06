@@ -164,4 +164,4 @@ env = { CAPCUT_API_URL = "http://localhost:9001" }
 
 Not affiliated with CapCut or ByteDance.
 
-An Italian guide is in [docs/GUIDA-IT.md](docs/GUIDA-IT.md).
+An Italian guide is in [docs/GUIDA-IT.md](docs/GUIDA-IT.md); what comes next is in [docs/ROADMAP.md](docs/ROADMAP.md).
