@@ -87,6 +87,12 @@
       },
       "added_tracks": {
         "type": "number"
+      },
+      "warnings": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
       }
     },
     "required": [

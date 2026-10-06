@@ -31,7 +31,8 @@ export const SaveDraftResult = z.object({
   draft_url: z.string(),
   revision: z.number(),
   backups: z.array(z.string()),
-  added_tracks: z.number().optional()
+  added_tracks: z.number().optional(),
+  warnings: z.array(z.string()).optional()
 }).passthrough();
 
 export const DurationResult = z.object({

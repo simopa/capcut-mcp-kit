@@ -68,6 +68,9 @@ const savedMarkdown = (d: SavedDraft) => {
   md += d.added_tracks !== undefined
     ? `Added ${d.added_tracks} track(s) to the existing project; open it in CapCut to see them.\n`
     : `The project is already in CapCut's projects folder: restart CapCut to see it in the list.\n`;
+  if (d.warnings?.length) {
+    md += `\n**Warnings**:\n${d.warnings.map((w) => `- ${w}`).join('\n')}\n`;
+  }
   return md;
 };
 
