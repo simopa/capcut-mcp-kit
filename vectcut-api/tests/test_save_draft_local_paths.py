@@ -14,7 +14,7 @@ def test_save_draft_sets_replace_path_for_video_without_draft_folder(monkeypatch
     file had actually been copied. replace_path must be set unconditionally so it
     matches where the file really ends up."""
     import save_draft_impl
-    from draft_cache import DRAFT_CACHE
+    from conftest import cache_only
     from draft_profiles import get_draft_profile
     from save_task_cache import create_task
 
@@ -40,7 +40,7 @@ def test_save_draft_sets_replace_path_for_video_without_draft_folder(monkeypatch
         tracks={},
         dumps=lambda profile=None: json.dumps(payload),
     )
-    DRAFT_CACHE[draft_id] = script
+    cache_only(draft_id, script)
     create_task(draft_id)
 
     monkeypatch.setattr(save_draft_impl, "get_draft_profile", lambda: get_draft_profile("jianying_pro_10"))
@@ -64,7 +64,7 @@ def test_save_draft_sets_replace_path_for_video_without_draft_folder(monkeypatch
 
 def test_save_draft_sets_replace_path_for_audio_without_draft_folder(monkeypatch, tmp_path):
     import save_draft_impl
-    from draft_cache import DRAFT_CACHE
+    from conftest import cache_only
     from draft_profiles import get_draft_profile
     from save_task_cache import create_task
 
@@ -89,7 +89,7 @@ def test_save_draft_sets_replace_path_for_audio_without_draft_folder(monkeypatch
         tracks={},
         dumps=lambda profile=None: json.dumps(payload),
     )
-    DRAFT_CACHE[draft_id] = script
+    cache_only(draft_id, script)
     create_task(draft_id)
 
     monkeypatch.setattr(save_draft_impl, "get_draft_profile", lambda: get_draft_profile("jianying_pro_10"))

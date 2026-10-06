@@ -2,13 +2,12 @@
 # See NOTICE at the repository root. The fixture is synthetic: it mimics CapCut 9.1's layout and
 # carries fields this kit does not know, which must survive untouched.
 import json
+import draft_store
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
-
-from draft_cache import DRAFT_CACHE
 
 HOST = {"Host": "127.0.0.1:9001", "X-CapCut-Kit-Token": "test-token"}
 COPIES = ["draft_info.json", "template-2.tmp", "Timelines/TL-1/draft_info.json", "Timelines/TL-1/template-2.tmp"]
@@ -209,7 +208,7 @@ def test_open_project_survives_a_restart(env, client):
     write_project(env.projects, "Riavvio", capcut_content())
     draft_id = call(client, "/open_project", project_name="Riavvio")["output"]["draft_id"]
     call(client, "/add_text", draft_id=draft_id, text="X", start=0, end=1)
-    DRAFT_CACHE.clear()
+    draft_store.forget_cache()
     assert call(client, "/save_draft", draft_id=draft_id)["success"]
 
 

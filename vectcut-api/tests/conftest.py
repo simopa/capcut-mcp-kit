@@ -12,11 +12,21 @@ if str(PROJECT_ROOT) not in sys.path:
 import pytest
 
 
+def cache_only(draft_id, script):
+    """Put a draft in the cache only (revision 0, nothing in SQLite): for tests whose stand-in
+    drafts cannot be pickled."""
+    import draft_store
+    with draft_store._cache_lock:
+        draft_store._cache[draft_id] = (0, script)
+
+
 @pytest.fixture(autouse=True)
 def isolate_from_capcut(tmp_path):
     """Added in capcut-mcp-kit: no test may touch the real CapCut drafts folder, backups or draft store.
     Its own MonkeyPatch, so a test calling monkeypatch.undo() cannot lift the isolation."""
+    import draft_store
     import save_draft_impl
+    draft_store.forget_cache()  # each test has its own draft store
     mp = pytest.MonkeyPatch()
     mp.setattr(save_draft_impl, "find_capcut_projects_dir", lambda: None)
     mp.setattr(save_draft_impl, "capcut_is_running", lambda: False)

@@ -74,14 +74,28 @@ CapCut drafts folder.
   reconciled when the project was written but the draft could not be recorded.
 - The replaced project stays on the same volume until the new one is in; backups to another volume
   are copied in full before anything is removed.
-- Media: never overwritten in a project, versioned by the file's size and modification time,
-  copied (not referenced) when inside a folder being replaced.
+- Media: never overwritten in a project, versioned (by content since the third review), copied
+  (not referenced) when inside a folder being replaced.
 - The authorization to replace a folder lives in the draft, not in a marker file; an unknown CapCut
   state blocks writing; request ids cover create/open, are tied to the call and expire safely.
 - `setup.sh` stops only a backend it can identify by socket, owner and command line; Python
   environments are built at their final path behind a symlink.
 - Camera `replace` keeps the curve outside its range; ducking holds under speech when the music
   ends first; the transcript cursor is passed back exactly.
+
+**Crash safety (third review)**
+- A save journals its whole plan before changing anything: every path it will use, the identity
+  (device, inode) and hash of what is there and of what replaces it, the new metadata, the identity
+  of each media file it moves in and what the draft records once saved. A crash at any step ends
+  in the old or the new version, checked by tests that kill the backend after every step.
+- Recovery never touches what it did not create: a project changed since is left as it is, with a
+  note of where the previous version is; undoing inside CapCut's folder waits for CapCut to be closed.
+- The project locks are held until the draft is committed; a draft cannot be saved while one of its
+  saves is unsettled.
+- The draft cache holds (revision, draft) pairs and never goes back to an older revision; a created
+  or opened draft is stored in the same transaction as its reply.
+- Media are versioned by content, and every copy put in a project is checked against it.
+- Save warnings appear in the Markdown reply too.
 
 ## Next
 

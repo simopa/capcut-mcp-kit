@@ -5,16 +5,21 @@
 Draft state.
 
 SQLite (in the state folder, private to the user) is the owner of every draft: a pickled
-Script_file (pending keyframes included) with a revision number. draft_cache.DRAFT_CACHE only
-keeps copies of what SQLite holds, each tagged with the revision it was loaded at, and a copy is
-used only while it is still the current revision: a draft changed by another backend process is
-loaded again.
+Script_file (pending keyframes included) with a revision number. The cache only keeps copies of
+what SQLite holds: each entry is one (revision, draft) pair, read from SQLite in one query and
+replaced as a whole, never by an older revision, and used only while it is still the current
+revision (a draft changed by another backend process is loaded again). Readers get the revision
+and the draft from the same entry.
 
 A change runs under the draft's lock (threads and processes) on a private working copy. If the
 route reports success, the new draft, its revision (compare-and-swap on the revision the copy was
 made from), the reply for the request_id and the end of any journalled write to a project folder
 are committed in one SQLite transaction; only then does the copy replace the cached one. On failure
-the working copy is dropped.
+the working copy is dropped. A save of the draft that did not finish (see save_draft_impl) is
+settled, and its result recorded in the draft, before any other change to it.
+
+A draft that is created (create, open) is stored in the same transaction as the reply to its
+request_id: a failure leaves neither.
 
 A call may carry:
 - request_id: the same id again with the same call (a retry) returns the first reply without
@@ -34,7 +39,7 @@ import threading
 import time
 from functools import wraps
 
-from draft_cache import DRAFT_CACHE, update_cache
+from collections import OrderedDict
 
 # Bump when Script_file objects pickled by an older version can no longer be used
 FORMAT = 1
@@ -158,11 +163,58 @@ def project_lock(path: str) -> _NamedLock:
     return named_lock("project:" + os.path.realpath(path))
 
 
+@contextlib.contextmanager
+def until_commit(lock):
+    """Take a lock for the rest of the current change: it is released only once the change is
+    committed (or dropped), so whoever takes it next finds the change's journal entry closed.
+    Outside a change, held for the block."""
+    held = HELD.get()
+    if held is None:
+        with lock:
+            yield
+    else:
+        held.enter_context(lock)
+        yield
+
+
 # --- Drafts -------------------------------------------------------------------------------------
 
-_cached_revision = {}  # draft_id -> revision of the copy in DRAFT_CACHE
-WORKING = contextvars.ContextVar("working_drafts", default=None)  # {draft_id: script} in a change
+WORKING = contextvars.ContextVar("working_drafts", default=None)  # {draft_id: (base revision, script)} in a change
 FS_OPS = contextvars.ContextVar("fs_ops", default=None)  # journal entries a change committed to disk
+NEW_DRAFTS = contextvars.ContextVar("new_drafts", default=None)  # drafts created by a create/open route
+NOTICES = contextvars.ContextVar("notices", default=None)  # what settling unfinished saves reported
+HELD = contextvars.ContextVar("held_locks", default=None)  # locks released once the change is committed
+
+MAX_CACHED = 1000
+_cache = OrderedDict()  # draft_id -> (revision, script), each entry replaced as a whole
+_cache_lock = threading.Lock()
+
+
+def _cached(draft_id: str, rev: int):
+    with _cache_lock:
+        entry = _cache.get(draft_id)
+        if entry is None or entry[0] != rev:
+            return None
+        _cache.move_to_end(draft_id)
+        return entry[1]
+
+
+def _install(draft_id: str, rev: int, script):
+    """Cache (rev, script) unless the cache already holds this revision or a newer one."""
+    with _cache_lock:
+        entry = _cache.get(draft_id)
+        if entry is not None and entry[0] >= rev:
+            return
+        _cache[draft_id] = (rev, script)
+        _cache.move_to_end(draft_id)
+        while len(_cache) > MAX_CACHED:
+            _cache.popitem(last=False)
+
+
+def forget_cache():
+    """Drop every cached draft (they are loaded again from SQLite)."""
+    with _cache_lock:
+        _cache.clear()
 
 
 def revision(draft_id: str) -> int:
@@ -172,7 +224,7 @@ def revision(draft_id: str) -> int:
 
 
 def _load(draft_id: str):
-    """(revision, script) from SQLite, or None."""
+    """(revision, script) from SQLite, read together, or None."""
     with _db() as conn:
         row = conn.execute("SELECT format, revision, data FROM drafts WHERE draft_id = ?", (draft_id,)).fetchone()
     if row is None:
@@ -183,49 +235,57 @@ def _load(draft_id: str):
 
 
 def _current(draft_id: str):
-    """(revision, script) for the draft as SQLite holds it now, from the cache when still current."""
+    """(revision, script) for the draft as SQLite holds it now, from the cache when still current.
+    The script is shared: callers must not change it."""
     if not draft_id:
         raise DraftNotFound("draft_id is required: create a draft with capcut_create_draft first")
-    stored = revision(draft_id)
-    if draft_id in DRAFT_CACHE and _cached_revision.get(draft_id, 0) == stored:
-        script = DRAFT_CACHE[draft_id]
-        update_cache(draft_id, script)
-        return stored, script
+    rev = revision(draft_id)
+    script = _cached(draft_id, rev)
+    if script is not None:
+        return rev, script
     loaded = _load(draft_id)
     if loaded is None:
-        DRAFT_CACHE.pop(draft_id, None)
+        with _cache_lock:
+            _cache.pop(draft_id, None)
         raise DraftNotFound(f"Draft {draft_id} not found: create a draft with capcut_create_draft")
-    rev, script = loaded
-    update_cache(draft_id, script)
-    _cached_revision[draft_id] = rev
-    return rev, script
+    _install(draft_id, *loaded)
+    return loaded
+
+
+def current(draft_id: str):
+    """(revision, draft) read together: inside a change, the working copy with the revision it
+    was made from; otherwise the current one. Never creates one."""
+    working = WORKING.get()
+    if working and draft_id in working:
+        return working[draft_id]
+    return _current(draft_id)
 
 
 def get_draft(draft_id):
     """The draft with this ID: inside a change, its working copy; otherwise the current one.
     Never creates one."""
-    working = WORKING.get()
-    if working and draft_id in working:
-        return working[draft_id]
-    return _current(draft_id)[1]
+    return current(draft_id)[1]
+
+
+def _insert_new(conn, draft_id: str, script):
+    conn.execute("INSERT INTO drafts (draft_id, format, revision, updated_at, data) VALUES (?, ?, 1, ?, ?)",
+                 (draft_id, FORMAT, time.time(), pickle.dumps(script, protocol=pickle.HIGHEST_PROTOCOL)))
 
 
 def store_new(draft_id: str, script):
-    """Record a draft that was just created (revision 1)."""
-    data = pickle.dumps(script, protocol=pickle.HIGHEST_PROTOCOL)
+    """Record a draft that was just created (revision 1). Inside a create/open route it is stored
+    with the route's reply, when the route succeeds."""
+    pending = NEW_DRAFTS.get()
+    if pending is not None:
+        pending.append((draft_id, script))
+        return
     with _db() as conn, conn:
-        conn.execute("INSERT INTO drafts (draft_id, format, revision, updated_at, data) VALUES (?, ?, 1, ?, ?)",
-                     (draft_id, FORMAT, time.time(), data))
-    update_cache(draft_id, script)
-    _cached_revision[draft_id] = 1
+        _insert_new(conn, draft_id, script)
+    _install(draft_id, 1, script)
 
 
 def _commit(conn, draft_id: str, base_revision: int, script):
     data = pickle.dumps(script, protocol=pickle.HIGHEST_PROTOCOL)
-    if base_revision == 0:
-        conn.execute("INSERT INTO drafts (draft_id, format, revision, updated_at, data) VALUES (?, ?, 1, ?, ?)",
-                     (draft_id, FORMAT, time.time(), data))
-        return
     changed = conn.execute("UPDATE drafts SET format = ?, revision = ?, updated_at = ?, data = ? "
                            "WHERE draft_id = ? AND revision = ?",
                            (FORMAT, base_revision + 1, time.time(), data, draft_id, base_revision)).rowcount
@@ -272,8 +332,10 @@ def remember_reply(request_id: str, fp: str, draft_id, reply: str):
 # --- Journal of writes to project folders --------------------------------------------------------
 
 def journal_begin(draft_id: str, kind: str, details: dict) -> str:
-    """Record a write to a project folder before it starts. It stays 'pending' until the draft
-    change that made it is committed ('done') or it is undone ('rolled_back')."""
+    """Record a write to a project folder before anything is created for it. It stays 'pending'
+    until the draft change that made it is committed ('done'), it is undone and checked to be
+    ('rolled_back'), or it is left for the user because something else changed the folder
+    since ('abandoned', with a note of what is where)."""
     import uuid
     op_id = uuid.uuid4().hex
     with _db() as conn, conn:
@@ -290,6 +352,13 @@ def journal_update(op_id: str, state: str = None, details: dict = None):
             conn.execute("UPDATE operations SET details = ? WHERE op_id = ?", (json.dumps(details), op_id))
 
 
+def journal_get(op_id: str):
+    """(state, details) of one entry as recorded now, or None."""
+    with _db() as conn:
+        row = conn.execute("SELECT state, details FROM operations WHERE op_id = ?", (op_id,)).fetchone()
+    return (row[0], json.loads(row[1])) if row else None
+
+
 def journal_pending(draft_id: str = None) -> list:
     """[(op_id, draft_id, kind, details)] of the writes not settled yet, oldest first."""
     with _db() as conn:
@@ -301,9 +370,12 @@ def journal_pending(draft_id: str = None) -> list:
 
 def committed_to_disk(op_id: str, summary: str):
     """Called once a change has written a project folder: its journal entry is closed together
-    with the draft, and a failure from here on must not claim that nothing happened."""
+    with the draft, and a failure from here on must not claim that nothing happened. Outside a
+    change (no draft to commit with) it is closed now."""
     ops = FS_OPS.get()
-    if ops is not None:
+    if ops is None:
+        journal_update(op_id, "done")
+    else:
         ops.append((op_id, summary))
 
 
@@ -347,7 +419,51 @@ def _not_recorded(error, ops) -> str:
         return f"{error} (the draft was left unchanged)"
     written = "; ".join(summary for _, summary in ops)
     return (f"{error}. The project folder WAS written ({written}) but the kit could not record it; "
-            f"the next save of this draft reconciles it")
+            f"it is reconciled at the next call on this draft or the next start of the backend")
+
+
+def _commit_change(draft_id, base_revision, working, ops, request_id=None, fp=None, reply=None):
+    """The new draft, its reply and the end of its journalled writes, in one transaction; then
+    the cache."""
+    with _db() as conn, conn:
+        _commit(conn, draft_id, base_revision, working)
+        if request_id:
+            _remember(conn, request_id, fp, draft_id, reply)
+        for op_id, _ in ops:
+            conn.execute("UPDATE operations SET state = 'done' WHERE op_id = ? AND state = 'pending'", (op_id,))
+    _install(draft_id, base_revision + 1, working)
+
+
+def _copy(script):
+    return pickle.loads(pickle.dumps(script, protocol=pickle.HIGHEST_PROTOCOL))
+
+
+def reconcile(draft_id: str) -> list:
+    """Settle the unfinished saves of a draft (crash, or the draft could not be recorded) and
+    record what they wrote in the draft, as a change of its own. Call with the draft's lock held
+    (it is re-entrant). Returns notes for the user (saves left pending or abandoned)."""
+    if not journal_pending(draft_id):
+        return []
+    import save_draft_impl  # imported here: it imports this module
+    with draft_lock(draft_id):
+        try:
+            base_revision, current_script = _current(draft_id)
+        except DraftNotFound:
+            return save_draft_impl.settle_saves(draft_id, None)
+        working = _copy(current_script)
+        held = contextlib.ExitStack()
+        tokens = [(WORKING, WORKING.set({draft_id: (base_revision, working)})), (FS_OPS, FS_OPS.set([])),
+                  (HELD, HELD.set(held))]
+        try:
+            notes = save_draft_impl.settle_saves(draft_id, working)
+            ops = FS_OPS.get()
+            if ops:
+                _commit_change(draft_id, base_revision, working, ops)
+            return notes
+        finally:
+            for var, token in reversed(tokens):
+                var.reset(token)
+            held.close()
 
 
 def transactional(view):
@@ -373,15 +489,22 @@ def transactional(view):
                 if earlier is not None:  # a retry: this change was already applied
                     return Response(earlier, mimetype="application/json")
             try:
-                base_revision, current = _current(draft_id)
+                base_revision = _current(draft_id)[0]
             except DraftNotFound as e:
                 return _failure(str(e))
             if expected is not None and (not isinstance(expected, int) or isinstance(expected, bool)
                                          or expected != base_revision):
                 return _failure(f"Draft {draft_id} is at revision {base_revision}, not {expected!r}: another call "
                                 f"changed it meanwhile. Check it (capcut_get_timeline) and try again.")
-            working = pickle.loads(pickle.dumps(current, protocol=pickle.HIGHEST_PROTOCOL))
-            tokens = [(WORKING, WORKING.set({draft_id: working})), (FS_OPS, FS_OPS.set([])),
+            try:
+                notes = reconcile(draft_id)  # an unfinished save is recorded before anything else
+                base_revision, current_script = _current(draft_id)
+            except Exception as e:
+                return _failure(f"An unfinished save of this draft could not be settled: {e}")
+            working = _copy(current_script)
+            held = contextlib.ExitStack()
+            tokens = [(WORKING, WORKING.set({draft_id: (base_revision, working)})), (FS_OPS, FS_OPS.set([])),
+                      (NOTICES, NOTICES.set(notes)), (HELD, HELD.set(held)),
                       (placement.AUTO_TRACK, placement.AUTO_TRACK.set(data.get("auto_track", True) is not False)),
                       (placement.MOVED, placement.MOVED.set([]))]
             try:
@@ -398,47 +521,54 @@ def transactional(view):
                     return response
                 try:
                     reply = _amend_reply(response, placement.MOVED.get(), base_revision + 1)
-                    with _db() as conn, conn:
-                        _commit(conn, draft_id, base_revision, working)
-                        if request_id:
-                            _remember(conn, request_id, fp, draft_id, reply)
-                        for op_id, _ in ops:
-                            conn.execute("UPDATE operations SET state = 'done' WHERE op_id = ?", (op_id,))
+                    _commit_change(draft_id, base_revision, working, ops, request_id, fp, reply)
                 except Exception as e:
                     return _failure(_not_recorded(e, ops))
-                update_cache(draft_id, working)
-                _cached_revision[draft_id] = base_revision + 1
                 return response
             finally:
                 for var, token in reversed(tokens):
                     var.reset(token)
+                held.close()
     return wrapper
 
 
 def idempotent(view):
-    """Wrap a Flask route that starts a draft (create, open): with a request_id, a retry returns
-    the first reply instead of starting a second draft."""
+    """Wrap a Flask route that starts a draft (create, open): the drafts it creates are stored
+    only if it succeeds, together with its reply, in one transaction. With a request_id, a retry
+    returns the first reply instead of starting a second draft."""
     @wraps(view)
     def wrapper(*args, **kwargs):
         from flask import Response, request
         data = request.get_json(silent=True) or {}
         request_id = _request_id(data)
-        if not request_id:
-            return view(*args, **kwargs)
         fp = fingerprint(request.path, data)
-        with named_lock("request:" + request_id):
-            try:
-                earlier = remembered_reply(request_id, fp)
-            except RequestConflict as e:
-                return _failure(str(e))
-            if earlier is not None:
-                return Response(earlier, mimetype="application/json")
-            response = view(*args, **kwargs)
-            if _succeeded(response):
-                # If this fails the client gets an error and the draft just made is never used
+        with contextlib.ExitStack() as stack:
+            if request_id:
+                stack.enter_context(named_lock("request:" + request_id))
                 try:
-                    remember_reply(request_id, fp, None, _amend_reply(response, None, None))
-                except Exception as e:
-                    return _failure(f"{e} (retry with a new request_id)")
+                    earlier = remembered_reply(request_id, fp)
+                except RequestConflict as e:
+                    return _failure(str(e))
+                if earlier is not None:
+                    return Response(earlier, mimetype="application/json")
+            token = NEW_DRAFTS.set([])
+            try:
+                response = view(*args, **kwargs)
+                created = NEW_DRAFTS.get()
+            finally:
+                NEW_DRAFTS.reset(token)
+            if not _succeeded(response):
+                return response
+            try:
+                reply = _amend_reply(response, None, None)
+                with _db() as conn, conn:
+                    for draft_id, script in created:
+                        _insert_new(conn, draft_id, script)
+                    if request_id:
+                        _remember(conn, request_id, fp, None, reply)
+            except Exception as e:
+                return _failure(f"{e} (nothing was created)")
+            for draft_id, script in created:
+                _install(draft_id, 1, script)
             return response
     return wrapper

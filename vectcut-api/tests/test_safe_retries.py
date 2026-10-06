@@ -1,11 +1,10 @@
 # Added in capcut-mcp-kit (2026): a retried call is not applied twice, a stale revision is refused,
 # and an old draft cannot silently replace a project edited in CapCut. See NOTICE at the repository root.
 import json
+import draft_store
 from pathlib import Path
 
 import pytest
-
-from draft_cache import DRAFT_CACHE
 
 HOST = {"Host": "127.0.0.1:9001", "X-CapCut-Kit-Token": "test-token"}
 
@@ -25,7 +24,7 @@ def new_draft(client):
 
 
 def texts(draft_id):
-    return sum(len(t.segments) for n, t in DRAFT_CACHE[draft_id].tracks.items() if n.startswith("text"))
+    return sum(len(t.segments) for n, t in draft_store.get_draft(draft_id).tracks.items() if n.startswith("text"))
 
 
 def test_same_request_id_is_applied_once(client):

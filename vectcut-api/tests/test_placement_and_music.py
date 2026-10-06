@@ -1,11 +1,10 @@
 # Added in capcut-mcp-kit (2026): overlapping items go to a free track; background music fills the
 # edit with fades and ducks under the voice. See NOTICE at the repository root.
 import shutil
+import draft_store
 import subprocess
 
 import pytest
-
-from draft_cache import DRAFT_CACHE
 import music
 
 HOST = {"Host": "127.0.0.1:9001", "X-CapCut-Kit-Token": "test-token"}
@@ -45,7 +44,7 @@ def test_overlapping_text_goes_to_a_free_track(client):
     assert second["output"]["moved_to_free_track"] == [{"requested_track": "text_main", "track": "text_main_2", "start": 1.0}]
     assert third["output"]["moved_to_free_track"][0]["track"] == "text_main_3"
     assert "moved_to_free_track" not in fourth["output"]
-    tracks = DRAFT_CACHE[draft_id].tracks
+    tracks = draft_store.get_draft(draft_id).tracks
     assert [len(tracks[n].segments) for n in ("text_main", "text_main_2", "text_main_3")] == [2, 1, 1]
     assert tracks["text_main_2"].render_index > tracks["text_main"].render_index
 
@@ -91,7 +90,7 @@ def test_music_loops_to_fill_the_edit_with_fades_and_ducking(client, tmp_path, m
 
     assert body["success"], body
     assert (body["output"]["pieces"], body["output"]["end"], body["output"]["ducked_spans"]) == (3, 10.0, 1)
-    segs = DRAFT_CACHE[draft_id].tracks["music"].segments
+    segs = draft_store.get_draft(draft_id).tracks["music"].segments
     assert [(s.target_timerange.start, s.target_timerange.duration) for s in segs] == \
         [(0, 4_000_000), (4_000_000, 4_000_000), (8_000_000, 2_000_000)]
     assert segs[0].fade.in_duration == 1_000_000 and segs[-1].fade.out_duration == 1_000_000  # capped at half

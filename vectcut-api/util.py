@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows asset paths built off Windows no longer double the drive separator; material names of local files depend on the file's version.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows asset paths built off Windows no longer double the drive separator; material names of local files depend on the file's content.
 # See NOTICE at the repository root.
 import shutil
 import subprocess
@@ -54,29 +54,66 @@ def zip_draft(draft_id):
 def url_to_hash(url, length=16):
     """
     Convert URL to a fixed-length hash string (without extension), used to name media materials.
-    For a local file the hash also covers its size and modification time (capcut-mcp-kit): a file
-    replaced at the same path becomes a different material, so clips added before keep the version
-    they were made with.
+    For a local file the hash also covers a digest of its content (capcut-mcp-kit): a file
+    replaced or edited at the same path becomes a different material, so clips added before keep
+    the version they were made with.
     """
     return hashlib.sha256(_source_key(url).encode('utf-8')).hexdigest()[:length]
 
 
-def _source_key(url):
+_digests = {}  # (real path, dev, inode, size, mtime_ns, ctime_ns) -> sha256 of the content
+
+
+def content_digest(path):
+    """sha256 of a file's content. The stat fields only spare reading again, within this process,
+    a file nothing has touched since (ctime changes on every write and cannot be set back by a
+    program); they never stand for the content."""
+    path = os.path.realpath(os.path.expanduser(str(path)))
+    st = os.stat(path)
+    key = (path, st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+    if key not in _digests:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        _digests[key] = h.hexdigest()
+    return _digests[key]
+
+
+def _source_key(url, digest=None):
     local = os.path.expanduser(str(url))
     if "://" not in str(url) and os.path.isfile(local):
-        st = os.stat(local)
-        return f"{url}\0{st.st_size}\0{st.st_mtime_ns}"
+        return f"{url}\0sha256:{digest or content_digest(local)}"
     return str(url)
 
 
-def source_changed(material_name, url):
-    """True when a material named by url_to_hash no longer matches the file at url (replaced or
-    edited after it was added). Names from older versions (path only) and other names are not judged."""
+def _versioned(material_name):
     m = re.match(r"^(?:video|image|audio)_([0-9a-f]{16})\.", str(material_name or ""))
-    if not m or not url:
+    return m.group(1) if m else None
+
+
+def source_changed(material_name, url, copy=None):
+    """True when a material named by url_to_hash is not the version of the file at url it was
+    added with: judged on `copy` (the file actually going into the project) when given, else on
+    the file at url. Names of kit 0.4.0 (size and modification time) are judged by those, names
+    of older versions (path only) and other names are not judged."""
+    name_hash = _versioned(material_name)
+    if not name_hash or not url:
+        return False
+    local = os.path.expanduser(str(url))
+    if "://" in str(url) or not os.path.isfile(copy or local):
         return False
     plain = hashlib.sha256(str(url).encode('utf-8')).hexdigest()[:16]
-    return m.group(1) not in (url_to_hash(url), plain)
+    if name_hash == plain:
+        return False
+    current = hashlib.sha256(_source_key(url, content_digest(copy or local)).encode('utf-8')).hexdigest()[:16]
+    if name_hash == current:
+        return False
+    if os.path.isfile(local):  # kit 0.4.0
+        st = os.stat(local)
+        legacy = f"{url}\0{st.st_size}\0{st.st_mtime_ns}"
+        return name_hash != hashlib.sha256(legacy.encode('utf-8')).hexdigest()[:16]
+    return True
 
 
 def timing_decorator(func_name):

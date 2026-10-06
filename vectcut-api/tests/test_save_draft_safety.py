@@ -30,7 +30,7 @@ def env(monkeypatch, tmp_path):
 
 
 def make_draft(draft_id, videos=(), marker="v1"):
-    from draft_cache import DRAFT_CACHE
+    from conftest import cache_only
 
     payload = {"tracks": [], "materials": {}, "duration": 0, "marker": marker}
     script = SimpleNamespace(
@@ -38,7 +38,7 @@ def make_draft(draft_id, videos=(), marker="v1"):
         duration=10_000_000,
         dumps=lambda profile=None: json.dumps(payload),
     )
-    DRAFT_CACHE[draft_id] = script
+    cache_only(draft_id, script)
     return payload
 
 

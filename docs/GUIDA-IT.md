@@ -60,9 +60,12 @@ che ci sono già non vengono mai modificate, spostate o tolte. Al salvataggio il
 timeline originale identica più le aggiunte, in tutte le copie che CapCut tiene, dopo aver fatto un
 backup dell'intera cartella del progetto in `~/Movies/CapCut MCP Backups`. **Chiudi CapCut prima di
 salvare** (se il kit non riesce a capire se è aperto, non salva); se nel frattempo hai modificato il
-progetto in CapCut, va riaperto. Se il salvataggio si interrompe a metà, il kit lo annulla o lo
-completa al salvataggio successivo: il progetto resta nella versione vecchia o in quella nuova, mai
-a metà.
+progetto in CapCut, va riaperto. Se il salvataggio si interrompe a metà, alla chiamata successiva su
+quel draft (o al riavvio del kit) viene completato o annullato: il progetto, i suoi metadati e i
+media restano tutti nella versione vecchia o tutti in quella nuova, mai a metà. Il kit tocca solo
+ciò che quel salvataggio aveva creato: se nel frattempo il progetto è cambiato (per esempio l'hai
+modificato in CapCut), lo lascia com'è e ti dice dove trovare la versione precedente. Se per
+annullare deve toccare la cartella dei progetti di CapCut, aspetta che CapCut sia chiuso.
 
 Se hai modificato in CapCut un progetto creato dal kit, il kit non lo sovrascrive più ri-salvando il
 vecchio draft: lo rifiuta e chiede di aprirlo con `capcut_open_project` (oppure `overwrite: true`,

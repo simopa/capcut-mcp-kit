@@ -3,7 +3,6 @@
 import uuid
 import pyJianYingDraft as draft
 import time
-from draft_cache import DRAFT_CACHE, update_cache
 from draft_store import get_draft, store_new
 
 # Frame rates CapCut offers for a project

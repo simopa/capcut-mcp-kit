@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: save straight into the local CapCut drafts folder (macOS/Windows), rename the folder to project_name, fix draft_meta_info.json; media under ~/Movies referenced in place; each file copied once even when used by many clips; validated folder names, staging + swap, existing folders moved to backups instead of deleted, failures reported; drafts opened from an existing project are saved by existing_project; one lock per project folder, checks repeated at commit, rename without replacing, the old folder kept on the same volume until the new one is in, journalled saves settled after a crash; a folder may be replaced only if the draft's own state says it saved it; CapCut must be known to be closed.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: save straight into the local CapCut drafts folder (macOS/Windows), rename the folder to project_name, fix draft_meta_info.json; media under ~/Movies referenced in place; each file copied once even when used by many clips; validated folder names, staging + swap, existing folders moved to backups instead of deleted, failures reported; drafts opened from an existing project are saved by existing_project; one lock per project folder held for the whole save, checks repeated at commit, rename without replacing, the old folder kept on the same volume until the new one is in, every path and identity journalled before the first change and unfinished saves settled from that plan (never touching what something else changed since); a folder may be replaced only if the draft's own state says it saved it; CapCut must be known to be closed.
 # See NOTICE at the repository root.
 import contextlib
 import ctypes
@@ -10,8 +10,8 @@ import shutil
 from util import zip_draft, build_draft_asset_path, source_changed
 from oss import upload_to_oss
 from typing import Dict, Literal
-from draft_store import (get_draft, DraftNotFound, project_lock, journal_begin, journal_update, journal_pending,
-                         committed_to_disk)
+from draft_store import (get_draft, DraftNotFound, project_lock, until_commit, journal_begin, journal_update,
+                         journal_pending, journal_get, committed_to_disk, NOTICES)
 from save_task_cache import DRAFT_TASKS, get_task_status, update_tasks_cache, update_task_field, increment_task_field, update_task_fields, create_task
 from downloader import download_audio, download_file, download_image, download_video
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -276,13 +276,27 @@ def kit_saves(script) -> dict:
         script.kit_saves = {}
     return script.kit_saves
 
+def _identity(path):
+    """[device, inode] of what is at path (a link itself, not what it points to), or None. A
+    rename keeps it: it tells the folder this save created or checked from anything put at the
+    same path by someone else."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    return [st.st_dev, st.st_ino]
+
+def _hidden(parent, kind):
+    """A new hidden path next to the project folders, for this save only."""
+    return child_dir(parent, f".capcut-mcp-{kind}-{uuid.uuid4().hex[:16]}")
+
 def check_replace(target, saved, overwrite, in_capcut, content_file="draft_info.json"):
     """Refuse to replace a folder this draft did not save, or that changed since this draft saved
-    it (unless overwrite), and any CapCut project while CapCut is open (or might be). Returns the
-    sha256 of the target's timeline as checked (None if it has none), to verify it again when the
-    folder is moved."""
+    it (unless overwrite), and any CapCut project while CapCut is open (or might be). Returns what
+    is at target as checked, for the swap to verify again: {"exists": False}, or {"exists": True,
+    "id": its identity, "sha": sha256 of its timeline or None}."""
     if not os.path.lexists(target):
-        return None
+        return {"exists": False}
     name = os.path.basename(target)
     if os.path.islink(target) or not os.path.isdir(target):
         raise SaveDraftError(f"'{name}' exists and is not a project folder")
@@ -300,36 +314,70 @@ def check_replace(target, saved, overwrite, in_capcut, content_file="draft_info.
             f"it anyway (the edited version is moved to {backup_root()}, not deleted).")
     if in_capcut:
         ensure_capcut_closed(f"replacing '{name}'", " Saving under a new project_name works while CapCut is open.")
-    return current
+    return {"exists": True, "id": _identity(target), "sha": current}
 
-def swap_in(stage_dir, target, checked_sha, content_file):
-    """Put a fully written staging folder at target. An existing target is first renamed aside in
-    the same folder (atomic, same volume) and verified to be what was checked; the new folder is
-    then renamed in without replacing anything that appeared meanwhile. Returns the aside path (or
-    None): the old project, still next to the new one until finish_swap moves it to the backups."""
+def swap_in(pair, content_file):
+    """Put the staging folder at the target, along the paths journalled beforehand in pair. A
+    target that was there when checked is renamed to pair["aside"] (same folder: atomic) and
+    verified to be the folder checked, with the same timeline; a target absent when checked must
+    still be absent. The stage is then renamed in without replacing anything that appeared
+    meanwhile. Raises SaveDraftError with nothing replaced."""
+    target, stage, aside, old = pair["target"], pair["stage"], pair["aside"], pair["old"]
     name = os.path.basename(target)
-    aside = None
-    if os.path.lexists(target):
-        aside = child_dir(os.path.dirname(target), f".capcut-mcp-old-{uuid.uuid4().hex[:8]}")
-        os.rename(target, aside)
-        if _file_sha(os.path.join(aside, content_file)) != checked_sha:
-            os.rename(aside, target)
+    if old["exists"]:
+        try:
+            rename_noreplace(target, aside)
+        except OSError:
+            raise SaveDraftError(f"'{name}' changed while it was being saved: nothing was replaced, try again")
+        if _identity(aside) != old["id"] or _file_sha(os.path.join(aside, content_file)) != old["sha"]:
+            rename_noreplace(aside, target)
             raise SaveDraftError(f"'{name}' changed while it was being saved: nothing was replaced, try again")
     try:
-        rename_noreplace(stage_dir, target)
+        rename_noreplace(stage, target)
     except OSError:
-        if aside:
-            rename_noreplace(aside, target)
+        if old["exists"]:
+            try:
+                rename_noreplace(aside, target)
+            except OSError:
+                # Something took the name between the two renames: it stays, the previous version
+                # goes where it can be seen
+                where, _ = finish_swap(aside, name)
+                raise SaveDraftError(f"A folder named '{name}' appeared while saving and was left as it is; the "
+                                     f"previous version of '{name}' is at {where}. Nothing of this save was kept.")
         raise SaveDraftError(f"A folder named '{name}' appeared while saving: nothing was replaced, try again")
-    return aside
 
-def undo_swap(target, aside):
-    """Put back what swap_in replaced; the new folder (written by this save) is removed."""
-    failed = child_dir(os.path.dirname(target), f".capcut-mcp-failed-{uuid.uuid4().hex[:8]}")
-    os.rename(target, failed)
-    if aside:
-        rename_noreplace(aside, target)
-    shutil.rmtree(failed, ignore_errors=True)
+def _pair_state(pair):
+    """Where a journalled swap stands: "new" (the staged folder is at target), "old" (the target
+    is as it was before the save), "aside" (stopped between the two renames: the previous
+    version is at the aside path, nothing at target) or "foreign" (something else is at target)."""
+    t, old = _identity(pair["target"]), pair["old"]
+    if t is not None and t == pair["new"]["id"]:
+        return "new"
+    if not old["exists"]:
+        return "old" if t is None else "foreign"
+    if t == old["id"]:
+        return "old"
+    if t is None and _identity(pair["aside"]) == old["id"]:
+        return "aside"
+    return "foreign"
+
+def _remove_leftovers(pair):
+    """Remove what this save created and is not in use: its staging folder (before the swap) or
+    the new folder moved out by an undo. Only folders with the staged folder's identity."""
+    new_id = (pair.get("new") or {}).get("id")
+    for path in (pair["stage"], pair["failed"]):
+        if new_id is not None and _identity(path) == new_id:
+            shutil.rmtree(path)
+
+def undo_swap(pair):
+    """Put back what swap_in replaced: the new folder (only if it is the one staged) is moved out
+    and removed, the previous version renamed back. Something else at target is not touched."""
+    target = pair["target"]
+    if _identity(target) == pair["new"]["id"]:
+        rename_noreplace(target, pair["failed"])
+    if pair["old"]["exists"] and not os.path.lexists(target) and _identity(pair["aside"]) == pair["old"]["id"]:
+        rename_noreplace(pair["aside"], target)
+    _remove_leftovers(pair)
 
 def finish_swap(aside, name):
     """Move the replaced project to the backups. Returns (where it is, warning or None): if it
@@ -361,6 +409,7 @@ def copy_assets(script, task_id, path_base, path_name, dest_root, avoid=(), skip
     once dest_root is in place) and copy the files into <dest_root>/assets/<type>/<name>. Media
     under ~/Movies is referenced where it is, unless it is inside `avoid` (folders this save
     replaces). Materials whose id is in `skip` are left as they are (already in the project).
+    Every copy is checked to be the version of the file the material was added with (its content).
     Raises SaveDraftError if any file is missing or changed since it was added."""
     download_tasks = []
     missing = []
@@ -374,9 +423,6 @@ def copy_assets(script, task_id, path_base, path_name, dest_root, avoid=(), skip
             missing.append(f"{material_name} (no source)")
             continue
         if use_in_place(material, remote_url, avoid):
-            continue
-        if source_changed(material_name, remote_url):
-            missing.append(f"{material_name} ({remote_url} was replaced or edited after it was added: add it again)")
             continue
         download_tasks.append({
             'type': asset_type,
@@ -415,10 +461,12 @@ def copy_assets(script, task_id, path_base, path_name, dest_root, avoid=(), skip
                                    progress=10 + int((completed_files / total) * 60),
                                    message=f"Downloaded {completed_files}/{total} files")
     for task in download_tasks:
-        if not os.path.isfile(task['args'][1]):
-            name = task['material'].material_name
+        name, (url, copy) = task['material'].material_name, task['args']
+        if not os.path.isfile(copy):
             if not any(m.startswith(name) for m in missing):
                 missing.append(f"{name} (not copied)")
+        elif source_changed(name, url, copy):
+            missing.append(f"{name} ({url} was replaced or edited after it was added: add it again)")
     if missing:
         raise SaveDraftError("Draft not saved, some media could not be copied: " + "; ".join(missing))
 
@@ -439,62 +487,135 @@ def verify_references(script, final_dir, stage_dir, avoid=(), existing_ok=False)
     if broken:
         raise SaveDraftError("Draft not saved, some media would point at files that will not exist: " + ", ".join(broken))
 
-def _recover_replace(op_id, details, script):
-    """Settle a save that replaced project folders and did not finish (crash, or the draft could
-    not be recorded). Each folder ends up either the new version or the old one; with the draft at
-    hand, the new versions are recorded in it."""
-    content_file = details["content_file"]
-    settled, adopted = True, []
-    for pair in details["pairs"]:
-        target, aside, stage = pair["target"], pair.get("aside"), pair.get("stage")
-        written = os.path.isdir(target) and not os.path.islink(target) and \
-            _file_sha(os.path.join(target, content_file)) == pair["content_sha"]
-        if written:
-            adopted.append(pair)
-            if aside and os.path.lexists(aside):
-                finish_swap(aside, os.path.basename(target))
-        elif not os.path.lexists(target) and aside and os.path.lexists(aside):
-            rename_noreplace(aside, target)  # interrupted between the two renames
-        elif aside and os.path.lexists(aside):
-            settled = False  # something else is at target: leave the old version where it is
-            logger.error(f"Save {op_id}: '{target}' is not the saved version; the previous one is at {aside}")
-        if stage and os.path.lexists(stage):
-            shutil.rmtree(stage, ignore_errors=True)
-    if not settled:
-        return
-    if adopted and script is None:
-        return  # the draft records them when it is next saved
-    for pair in adopted:
-        kit_saves(script)[os.path.realpath(pair["target"])] = pair["content_sha"]
-    if adopted:
-        committed_to_disk(op_id, "an earlier save, reconciled")
-    else:
-        journal_update(op_id, "rolled_back")
+# --- Saves that did not finish -------------------------------------------------------------------
+#
+# A save journals its plan before it creates anything: every path it will use (staging folder,
+# where the previous version goes, ...) while preparing, then, before the first change to a
+# project folder, the identity and content of what is there and of what replaces it. A save that
+# stops halfway (crash, or the draft could not be recorded) is settled from that plan and from
+# what is on disk now, under the folders' locks: either all of it happened (it is recorded in the
+# draft) or none of it (what it created is removed, what it moved is put back, then checked). If
+# something else changed a folder since, nothing there is touched: the entry is 'abandoned' and a
+# note says where the previous version is. Undoing anything inside CapCut's projects folder waits
+# until CapCut is known to be closed.
 
-def recover_saves(draft_id=None, script=None):
-    """Settle the journalled saves that did not finish: those of draft_id (recording what they
-    wrote in script, its working copy), or all of them at startup."""
+def _settle_replace(op_id, details, script):
+    pairs = details["pairs"]
+    if details.get("phase") != "ready":
+        # Stopped while preparing: no project folder was touched. The staging folders were
+        # created after this entry, under the lock, at paths of this save only.
+        for pair in pairs:
+            if os.path.isdir(pair["stage"]) and not os.path.islink(pair["stage"]):
+                shutil.rmtree(pair["stage"])
+        journal_update(op_id, "rolled_back")
+        return []
+    states = [_pair_state(pair) for pair in pairs]
+    if "foreign" in states:
+        notes = []
+        for pair, state in zip(pairs, states):
+            name = os.path.basename(pair["target"])
+            if state == "foreign":
+                note = f"'{pair['target']}' was changed by something else after a save of this draft stopped halfway: it was left as it is"
+                if pair["old"]["exists"] and _identity(pair["aside"]) == pair["old"]["id"]:
+                    where, _ = finish_swap(pair["aside"], name)
+                    note += f"; the version it had before that save is at {where}"
+                notes.append(note)
+            _remove_leftovers(pair)
+        journal_update(op_id, "abandoned", details={**details, "notes": notes})
+        return notes
+    if all(state == "new" for state in states):
+        for pair in pairs:
+            if pair["old"]["exists"] and _identity(pair["aside"]) == pair["old"]["id"]:
+                finish_swap(pair["aside"], os.path.basename(pair["target"]))
+            _remove_leftovers(pair)
+        if script is None:
+            journal_update(op_id, "done")  # the draft is gone: nothing to record it in
+            return []
+        for pair in pairs:
+            kit_saves(script)[os.path.realpath(pair["target"])] = pair["new"]["sha"]
+        committed_to_disk(op_id, "an earlier save, reconciled")
+        return []
+    # Not all of it happened: everything goes back as it was
+    if any(state == "new" and pair["in_capcut"] for pair, state in zip(pairs, states)) and \
+            capcut_is_running() is not False:
+        return [f"A save of this draft stopped halfway; it is undone once CapCut is known to be closed: quit "
+                f"CapCut and call again. Nothing was written meanwhile."]
+    for pair, state in zip(pairs, states):
+        if state in ("new", "aside"):
+            undo_swap(pair)
+        _remove_leftovers(pair)
+    if all(_pair_state(pair) == "old" for pair in pairs):
+        journal_update(op_id, "rolled_back")
+        return []
+    return [f"A save of this draft stopped halfway and could not be fully undone: check "
+            f"{', '.join(p['target'] for p in pairs)}"]
+
+def settle_saves(draft_id, script):
+    """Settle the journalled saves of draft_id that did not finish, recording in script (the
+    draft's working copy, None if the draft is gone) what they wrote. Each entry is read again
+    under its folders' locks, so one settled meanwhile is not settled twice. Returns notes for
+    the user: saves left pending (CapCut open) or abandoned (something else changed the folder)."""
     import existing_project
-    for op_id, op_draft, kind, details in journal_pending(draft_id):
-        folders = details.get("locks") or []
+    notes = []
+    for op_id, _, kind, _ in journal_pending(draft_id):
         with contextlib.ExitStack() as stack:
-            for folder in sorted(folders):
-                stack.enter_context(project_lock(folder))
-            if not any(op == op_id for op, *_ in journal_pending(op_draft)):
-                continue  # settled meanwhile
+            recorded = journal_get(op_id)
+            for folder in sorted((recorded[1] if recorded else {}).get("locks") or []):
+                stack.enter_context(until_commit(project_lock(folder)))
+            recorded = journal_get(op_id)
+            if recorded is None or recorded[0] != "pending":
+                continue
+            details = recorded[1]
             try:
-                if kind == "replace":
-                    _recover_replace(op_id, details, script if op_draft == draft_id else None)
+                if "phase" not in details:
+                    note = (f"A save of this draft by an older version of the kit did not finish; it was left as it "
+                            f"is: check {details.get('dir') or ', '.join(p['target'] for p in details.get('pairs', []))}")
+                    journal_update(op_id, "abandoned", details={**details, "notes": [note]})
+                    notes.append(note)
+                elif kind == "replace":
+                    notes += _settle_replace(op_id, details, script)
                 elif kind == "existing":
-                    existing_project.recover(op_id, details, script if op_draft == draft_id else None)
+                    notes += existing_project.settle(op_id, details, script)
             except Exception as e:
                 logger.error(f"Could not settle save {op_id}: {e}", exc_info=True)
+                notes.append(f"A save of this draft did not finish and could not be settled ({e}); nothing else "
+                             f"was changed")
+    return notes
+
+def recover_saves():
+    """At startup: settle every journalled save a previous run left unfinished, each recorded in
+    its own draft. Returns the notes (also logged)."""
+    import draft_store
+    notes = []
+    for draft_id in dict.fromkeys(op[1] for op in journal_pending()):
+        try:
+            notes += draft_store.reconcile(draft_id)
+        except Exception as e:
+            logger.error(f"Could not settle the saves of draft {draft_id}: {e}", exc_info=True)
+    for note in notes:
+        logger.warning(note)
+    return notes
+
+def ensure_settled(draft_id, folders):
+    """Refuse to save while a save of this draft, or one into these folders, is unfinished."""
+    folders = set(folders)
+    for op_id, op_draft, kind, details in journal_pending():
+        if op_draft == draft_id:
+            notes = NOTICES.get() or []
+            raise SaveDraftError(notes[-1] if notes else "An earlier save of this draft did not finish and could not "
+                                 "be settled: this save was not attempted. Nothing was written.")
+        if folders & set(details.get("locks") or []):
+            raise SaveDraftError(f"A save of another draft ({op_draft}) into the same folder did not finish: it is "
+                                 f"settled at the next call on that draft or the next start of the backend. "
+                                 f"Nothing was written.")
 
 def save_draft_background(draft_id, draft_folder, task_id, project_name=None, auto_deploy=True, overwrite=False):
-    """Save a draft: write it into a staging folder next to its destination, check every asset
-    arrived, then swap it in. An existing folder is moved to backups, never deleted.
-    Returns {"draft_url": path, "backups": [...]}; raises on failure with nothing replaced."""
-    stages = []
+    """Save a draft. Under the destination folders' locks: the paths it will use are journalled
+    before anything is created; the draft is written into a staging folder next to its
+    destination and every asset checked; what is there is checked again and journalled with what
+    replaces it; then it is swapped in. An existing folder is moved to backups, never deleted.
+    Returns {"draft_url": path, "backups": [...], "warnings"?}; raises on failure with nothing
+    replaced."""
     try:
         validate_folder_name(draft_id, "draft_id")
         if project_name:
@@ -503,14 +624,17 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
             script = get_draft(draft_id)
         except DraftNotFound as e:
             raise SaveDraftError(str(e))
-        recover_saves(draft_id, script)
+        notes = list(NOTICES.get() or [])
         if getattr(script, "base_project", None):
             # Opened with capcut_open_project: add to that project, never replace it
             if project_name and project_name.strip() != script.base_project["name"]:
                 raise SaveDraftError(f"This draft adds to the existing project '{script.base_project['name']}': "
                                      f"leave project_name out (or use that name)")
             import existing_project
-            return existing_project.save_into_existing(draft_id, script, task_id)
+            result = existing_project.save_into_existing(draft_id, script, task_id)
+            if notes:
+                result["warnings"] = notes + result.get("warnings", [])
+            return result
 
         update_task_fields(task_id, status="processing", message="Preparing draft files", progress=0)
 
@@ -531,82 +655,93 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
         targets = [(draft_dir, in_place)] + ([(deploy_dir, True)] if deploy_dir else [])
         avoid = [t for t, _ in targets]
         saved = kit_saves(script)
-
-        # Refuse before writing anything
         draft_profile = get_draft_profile()
         content_file = draft_profile.content_file
-        for target, in_capcut in targets:
-            check_replace(target, saved, overwrite, in_capcut, content_file)
-
         template_source_dir = os.path.join(current_dir, draft_profile.template_dir)
         if not os.path.exists(template_source_dir):
             raise FileNotFoundError(f"Template draft {draft_profile.template_dir} does not exist")
-        stage_dir = child_dir(output_base_dir, f".capcut-mcp-saving-{uuid.uuid4().hex[:8]}")
-        stages.append(stage_dir)
-        shutil.copytree(template_source_dir, stage_dir)
+        locks = sorted({os.path.realpath(t) for t, _ in targets})
 
-        update_task_fields(task_id, message="Updating media file metadata", progress=5)
-        update_media_metadata(script, task_id)
-
-        # Assets are copied into the staging folder; replace_path is where they will be once it
-        # is renamed to draft_dir.
-        copy_assets(script, task_id, output_base_dir, final_name, stage_dir, avoid=avoid)
-        verify_references(script, draft_dir, stage_dir, avoid)
-
-        update_task_fields(task_id, message="Saving draft information", progress=70)
-        written_files = write_profile_content(draft_profile, stage_dir, script.dumps(draft_profile))
-        logger.info(f"Draft information has been saved to {[str(path) for path in written_files]}.")
-        write_kit_marker(stage_dir, draft_id, draft_profile.content_file)
-        content_sha = _file_sha(os.path.join(stage_dir, content_file))
-        if in_place:
-            previous = read_meta(draft_dir) if os.path.realpath(draft_dir) in saved else None
-            fix_draft_meta(stage_dir, draft_dir, project_name or draft_id, script.duration, previous)
-        pairs = [{"target": draft_dir, "stage": stage_dir}]
-
-        if deploy_dir:
-            # Saved elsewhere: also place a copy in CapCut's drafts directory (committed together)
-            deploy_stage = child_dir(capcut_projects_dir, f".capcut-mcp-saving-{uuid.uuid4().hex[:8]}")
-            stages.append(deploy_stage)
-            shutil.copytree(stage_dir, deploy_stage)
-            lock_f = os.path.join(deploy_stage, ".locked")
-            if os.path.exists(lock_f):
-                os.remove(lock_f)
-            previous = read_meta(deploy_dir) if os.path.realpath(deploy_dir) in saved else None
-            fix_draft_meta(deploy_stage, deploy_dir, project_name or draft_id, script.duration, previous)
-            pairs.append({"target": deploy_dir, "stage": deploy_stage})
-        for pair in pairs:
-            pair["content_sha"] = content_sha
-
-        # Commit under every target's lock, checking again what was checked before staging
-        backups, warnings = [], []
+        backups, warnings = [], list(notes)
         with contextlib.ExitStack() as stack:
-            for target in sorted(os.path.realpath(t) for t, _ in targets):
-                stack.enter_context(project_lock(target))
-            checked = {target: check_replace(target, saved, overwrite, in_capcut, content_file)
-                       for target, in_capcut in targets}
-            details = {"content_file": content_file, "pairs": pairs,
-                       "locks": [os.path.realpath(t) for t, _ in targets]}
+            for folder in locks:
+                stack.enter_context(until_commit(project_lock(folder)))
+            ensure_settled(draft_id, locks)
+            for target, in_capcut in targets:  # refuse before writing anything
+                check_replace(target, saved, overwrite, in_capcut, content_file)
+
+            pairs = [{"target": target, "in_capcut": in_capcut,
+                      "stage": _hidden(os.path.dirname(target), "saving"),
+                      "aside": _hidden(os.path.dirname(target), "old"),
+                      "failed": _hidden(os.path.dirname(target), "failed")} for target, in_capcut in targets]
+            details = {"phase": "preparing", "content_file": content_file, "pairs": pairs, "locks": locks}
             op_id = journal_begin(draft_id, "replace", details)
+            try:
+                stage_dir = pairs[0]["stage"]
+                shutil.copytree(template_source_dir, stage_dir)
+
+                update_task_fields(task_id, message="Updating media file metadata", progress=5)
+                update_media_metadata(script, task_id)
+
+                # Assets are copied into the staging folder; replace_path is where they will be once it
+                # is renamed to draft_dir.
+                copy_assets(script, task_id, output_base_dir, final_name, stage_dir, avoid=avoid)
+                verify_references(script, draft_dir, stage_dir, avoid)
+
+                update_task_fields(task_id, message="Saving draft information", progress=70)
+                written_files = write_profile_content(draft_profile, stage_dir, script.dumps(draft_profile))
+                logger.info(f"Draft information has been saved to {[str(path) for path in written_files]}.")
+                write_kit_marker(stage_dir, draft_id, draft_profile.content_file)
+                content_sha = _file_sha(os.path.join(stage_dir, content_file))
+                if in_place:
+                    previous = read_meta(draft_dir) if os.path.realpath(draft_dir) in saved else None
+                    fix_draft_meta(stage_dir, draft_dir, project_name or draft_id, script.duration, previous)
+                if deploy_dir:
+                    # Saved elsewhere: also place a copy in CapCut's drafts directory (committed together)
+                    deploy_stage = pairs[1]["stage"]
+                    shutil.copytree(stage_dir, deploy_stage)
+                    lock_f = os.path.join(deploy_stage, ".locked")
+                    if os.path.exists(lock_f):
+                        os.remove(lock_f)
+                    previous = read_meta(deploy_dir) if os.path.realpath(deploy_dir) in saved else None
+                    fix_draft_meta(deploy_stage, deploy_dir, project_name or draft_id, script.duration, previous)
+
+                # What is there now (checked again: CapCut does not take the kit's locks) and what
+                # replaces it, journalled before the first rename
+                for pair in pairs:
+                    pair["new"] = {"sha": content_sha, "id": _identity(pair["stage"])}
+                    pair["old"] = check_replace(pair["target"], saved, overwrite, pair["in_capcut"], content_file)
+                details["phase"] = "ready"
+                journal_update(op_id, details=details)
+            except BaseException:
+                try:
+                    for pair in pairs:
+                        if os.path.isdir(pair["stage"]) and not os.path.islink(pair["stage"]):
+                            shutil.rmtree(pair["stage"])
+                    journal_update(op_id, "rolled_back")
+                except Exception as e:
+                    logger.error(f"Could not clean up save {op_id}: {e}", exc_info=True)
+                raise
+
             swapped = []
             try:
                 for pair in pairs:
-                    pair["aside"] = None
-                    aside = swap_in(pair["stage"], pair["target"], checked[pair["target"]], content_file)
-                    pair["aside"] = aside
-                    stages.remove(pair["stage"])
+                    swap_in(pair, content_file)
                     swapped.append(pair)
-                    journal_update(op_id, details=details)
             except BaseException:
                 try:
                     for pair in reversed(swapped):
-                        undo_swap(pair["target"], pair["aside"])
-                    journal_update(op_id, "rolled_back")
+                        undo_swap(pair)
+                    for pair in pairs:
+                        _remove_leftovers(pair)
+                    if all(_pair_state(p) in ("old", "foreign") for p in pairs):
+                        journal_update(op_id, "rolled_back")
                 except Exception as e:
-                    logger.error(f"Could not undo save {op_id}: {e}", exc_info=True)
+                    logger.error(f"Could not undo save {op_id}: {e}", exc_info=True)  # settled later from the journal
                 raise
             for pair in pairs:
                 saved[os.path.realpath(pair["target"])] = content_sha
-                if pair["aside"]:
+                if pair["old"]["exists"]:
                     where, warning = finish_swap(pair["aside"], os.path.basename(pair["target"]))
                     if where:
                         backups.append(where)
@@ -638,9 +773,6 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
         return result
 
     except Exception as e:
-        for stage in stages:
-            # Only ever staging folders this call created
-            shutil.rmtree(stage, ignore_errors=True)
         update_task_fields(task_id, status="failed", message=f"Failed to save draft: {str(e)}")
         logger.error(f"Saving draft {draft_id} task {task_id} failed: {str(e)}", exc_info=True)
         raise

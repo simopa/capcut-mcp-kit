@@ -15,7 +15,6 @@ from pathlib import Path
 import pytest
 
 import draft_store
-from draft_cache import DRAFT_CACHE
 import save_draft_impl
 from test_existing_project import HOST, capcut_content, snapshot, write_project
 
@@ -45,8 +44,7 @@ def call(client, route, **payload):
 
 
 def restart():
-    DRAFT_CACHE.clear()
-    draft_store._cached_revision.clear()
+    draft_store.forget_cache()
 
 
 def texts_in(path):
@@ -237,11 +235,11 @@ def test_draft_folder_and_capcut_copy_are_saved_together(env, client, monkeypatc
     elsewhere.mkdir()
     real, calls = save_draft_impl.swap_in, []
 
-    def deploy_fails(stage, target, *args):
-        calls.append(target)
+    def deploy_fails(pair, content_file):
+        calls.append(pair["target"])
         if len(calls) == 2:
             raise OSError(errno.ENOSPC, "No space left")
-        return real(stage, target, *args)
+        return real(pair, content_file)
     monkeypatch.setattr(save_draft_impl, "swap_in", deploy_fails)
 
     body = call(client, "/save_draft", draft_id=d, draft_folder=str(elsewhere), project_name="Coppia")

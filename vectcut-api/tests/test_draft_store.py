@@ -8,7 +8,6 @@ import threading
 import pytest
 
 import draft_store
-from draft_cache import DRAFT_CACHE
 
 HOST = {"Host": "127.0.0.1:9001", "X-CapCut-Kit-Token": "test-token"}
 
@@ -31,11 +30,11 @@ def new_draft(client):
 
 def restart():
     """What a backend restart does to memory: every draft is gone from the cache."""
-    DRAFT_CACHE.clear()
+    draft_store.forget_cache()
 
 
 def segments(draft_id, track):
-    return len(DRAFT_CACHE[draft_id].tracks[track].segments) if track in DRAFT_CACHE[draft_id].tracks else 0
+    return len(draft_store.get_draft(draft_id).tracks[track].segments) if track in draft_store.get_draft(draft_id).tracks else 0
 
 
 @pytest.fixture
@@ -49,11 +48,11 @@ def clip(tmp_path):
 
 
 def test_unknown_draft_id_is_an_error_and_creates_nothing(client):
-    before = set(DRAFT_CACHE)
+    before = set(draft_store._cache)
     body = call(client, "/add_text", draft_id="dfd_cat_0_missing", text="Ciao", start=0, end=1)
     assert body["success"] is False
     assert "not found" in body["error"]
-    assert set(DRAFT_CACHE) == before
+    assert set(draft_store._cache) == before
 
 
 def test_missing_draft_id_is_an_error(client):
@@ -71,7 +70,7 @@ def test_draft_survives_a_restart_with_pending_keyframes(client, clip):
     restart()
 
     assert call(client, "/add_text", draft_id=draft_id, text="Dopo il riavvio", start=0, end=1)["success"]
-    script = DRAFT_CACHE[draft_id]
+    script = draft_store.get_draft(draft_id)
     assert len(script.tracks["video_main"].segments) == 1
     assert script.tracks["video_main"].pending_keyframes == [{"property_type": "alpha", "time": 1, "value": "0.5"}]
     assert script.materials.videos[0].remote_url == clip
@@ -126,7 +125,7 @@ def test_failed_save_keeps_pending_keyframes(client, clip, tmp_path, monkeypatch
 
     assert call(client, "/save_draft", draft_id=draft_id, project_name="Occupato")["success"] is False
 
-    assert DRAFT_CACHE[draft_id].tracks["video_main"].pending_keyframes
+    assert draft_store.get_draft(draft_id).tracks["video_main"].pending_keyframes
 
 
 def test_each_success_bumps_the_stored_revision(client):

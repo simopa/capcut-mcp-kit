@@ -120,15 +120,15 @@ def add_background_music(draft_id: str, audio_url: str, volume: float = 0.25, fa
 
 def timeline(draft_id: str) -> dict:
     """The draft's tracks with where each one ends, to place new items after or over them."""
-    draft_id, script = get_or_create_draft(draft_id=draft_id)
+    import draft_store
+    rev, script = draft_store.current(draft_id)  # read together: the revision is the one shown
     tracks = []
     for name, t in script.tracks.items():
         if not t.segments:
             continue
         tracks.append({"name": name, "type": t.track_type.name, "clips": len(t.segments),
                        "end": round(max(s.target_timerange.end for s in t.segments) / 1e6, 3)})
-    import draft_store
-    out = {"draft_id": draft_id, "revision": draft_store.revision(draft_id),
+    out = {"draft_id": draft_id, "revision": rev,
            "duration": round(script.duration / 1e6, 3), "tracks": tracks}
     base = getattr(script, "base_project", None)
     if base:
