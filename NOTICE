@@ -34,10 +34,17 @@ vectcut-api/
     and swapped in, an existing folder is moved to backups instead of deleted,
     projects not saved from the same draft need overwrite, replacing a project is
     refused while CapCut is open, and failed copies are reported as failures.
+  - add_text_impl.py, add_audio_track.py: an unknown animation or audio effect name
+    is an error (it was silently ignored).
+  - add_video_keyframe_impl.py, pyJianYingDraft/track.py: a keyframe with no clip at
+    its time is an error when added; a batch is validated before any is queued;
+    pending keyframes that cannot be applied raise instead of being dropped.
+  - create_draft.py, capcut_server.py: the requested fps (24/25/30/50/60) is applied
+    and returned with the size (it was ignored).
   - capcut_server.py: the web preview routes are off unless CAPCUT_ENABLE_PREVIEW=1;
     requests with a non-loopback Host or Origin are refused.
   - tests/test_save_draft_local_paths.py: never writes into the real CapCut folder;
-    tests/test_save_draft_safety.py and tests/test_media_analysis.py (new).
+    tests/test_save_draft_safety.py, test_media_analysis.py, test_no_false_success.py (new).
   - pyJianYingDraft/script_file.py: import_srt crashed when no font was given.
   - The upstream mcp-server/ folder (a copy of the project below) is not included.
 

@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; add_video records clip placement; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; add_video records clip placement; create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted.
 # See NOTICE at the repository root.
 import requests
 import os
@@ -235,6 +235,7 @@ def create_draft_service():
     # Get parameters
     width = data.get('width', 1080)
     height = data.get('height', 1920)
+    fps = data.get('fps', 30)
     
     result = {
         "success": False,
@@ -244,12 +245,15 @@ def create_draft_service():
     
     try:
         # Create new draft
-        script, draft_id = create_draft(width=width, height=height)
+        script, draft_id = create_draft(width=width, height=height, fps=fps)
         
         result["success"] = True
         result["output"] = {
             "draft_id": draft_id,
-            "draft_url": utilgenerate_draft_url(draft_id)
+            "draft_url": utilgenerate_draft_url(draft_id),
+            "width": script.width,
+            "height": script.height,
+            "fps": script.fps
         }
         return jsonify(result)
         

@@ -1,3 +1,5 @@
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: an unknown intro/outro animation name is an error instead of being ignored.
+# See NOTICE at the repository root.
 import pyJianYingDraft as draft
 from settings.local import IS_CAPCUT_ENV
 from util import generate_draft_url, hex_to_rgb
@@ -261,11 +263,12 @@ def add_text_impl(
                 animation_type = getattr(draft.CapCut_Text_intro, intro_animation)
             else:
                 animation_type = getattr(draft.Text_intro, intro_animation)
-            # Convert seconds to microseconds
-            duration_microseconds = int(intro_duration * 1000000)
-            text_segment.add_animation(animation_type, duration_microseconds)  # Add intro animation, set duration
-        except:
-            print(f"Warning: Unsupported intro animation type {intro_animation}, this parameter will be ignored")
+        except AttributeError:
+            raise ValueError(f"Unknown text intro animation '{intro_animation}': use an exact name from "
+                             f"capcut_list_types category=\"text_intro\"")
+        # Convert seconds to microseconds
+        duration_microseconds = int(intro_duration * 1000000)
+        text_segment.add_animation(animation_type, duration_microseconds)  # Add intro animation, set duration
 
     # Add outro animation
     if outro_animation:
@@ -274,11 +277,12 @@ def add_text_impl(
                 animation_type = getattr(draft.CapCut_Text_outro, outro_animation)
             else:
                 animation_type = getattr(draft.Text_outro, outro_animation)
-            # Convert seconds to microseconds
-            duration_microseconds = int(outro_duration * 1000000)
-            text_segment.add_animation(animation_type, duration_microseconds)  # Add outro animation, set duration
-        except:
-            print(f"Warning: Unsupported outro animation type {outro_animation}, this parameter will be ignored")
+        except AttributeError:
+            raise ValueError(f"Unknown text outro animation '{outro_animation}': use an exact name from "
+                             f"capcut_list_types category=\"text_outro\"")
+        # Convert seconds to microseconds
+        duration_microseconds = int(outro_duration * 1000000)
+        text_segment.add_animation(animation_type, duration_microseconds)  # Add outro animation, set duration
 
     # Add text segment to track
     script.add_segment(text_segment, track_name=track_name)

@@ -1,9 +1,14 @@
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: the requested fps is applied (it was ignored).
+# See NOTICE at the repository root.
 import uuid
 import pyJianYingDraft as draft
 import time
 from draft_cache import DRAFT_CACHE, update_cache
 
-def create_draft(width=1080, height=1920):
+# Frame rates CapCut offers for a project
+SUPPORTED_FPS = (24, 25, 30, 50, 60)
+
+def create_draft(width=1080, height=1920, fps=30):
     """
     Create new CapCut draft
     :param width: Video width, default 1080
@@ -15,8 +20,10 @@ def create_draft(width=1080, height=1920):
     unique_id = uuid.uuid4().hex[:8]  # Take the first 8 digits of UUID
     draft_id = f"dfd_cat_{unix_time}_{unique_id}"  # Use Unix timestamp and UUID combination
     
+    if fps not in SUPPORTED_FPS:
+        raise ValueError(f"Unsupported fps {fps}: use one of {', '.join(map(str, SUPPORTED_FPS))}")
     # Create CapCut draft with specified resolution
-    script = draft.Script_file(width, height)
+    script = draft.Script_file(width, height, fps)
     
     # Store in global cache
     update_cache(draft_id, script)

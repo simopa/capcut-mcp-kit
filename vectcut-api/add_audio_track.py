@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: fade_in / fade_out support.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: fade_in / fade_out support; an unknown audio effect is an error instead of being ignored.
 # See NOTICE at the repository root.
 # 导入必要的模块
 import pyJianYingDraft as draft
@@ -144,7 +144,8 @@ def add_audio_track(
             if effect_type:
                 audio_segment.add_effect(effect_type, params)
             else:
-                print(f"Warning: Audio effect named {effect_name} not found")
+                raise ValueError(f"Unknown audio effect '{effect_name}': use an exact name from "
+                                 f"capcut_list_types category=\"audio_effect\"")
     
     if fade_in or fade_out:
         audio_segment.add_fade(f"{fade_in}s", f"{fade_out}s")

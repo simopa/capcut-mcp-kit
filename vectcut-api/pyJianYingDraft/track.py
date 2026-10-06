@@ -1,3 +1,5 @@
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: pending keyframes that cannot be applied raise an error instead of being dropped.
+# See NOTICE at the repository root.
 """轨道类及其元数据"""
 
 import uuid
@@ -111,6 +113,7 @@ class Track(Base_track, Generic[Seg_type]):
         if not self.pending_keyframes:
             return
             
+        failed = []
         for kf_info in self.pending_keyframes:
             property_type = kf_info["property_type"]
             time = kf_info["time"]
@@ -126,7 +129,7 @@ class Track(Base_track, Generic[Seg_type]):
                 )
                         
                 if target_segment is None:
-                    print(f"警告：在轨道 {self.name} 的时间点 {time}s 找不到对应的片段，跳过此关键帧")
+                    failed.append(f"{property_type} at {time}s: no clip on track {self.name}")
                     continue
                     
                 # 将属性类型字符串转换为枚举值
@@ -156,10 +159,12 @@ class Track(Base_track, Generic[Seg_type]):
                 target_segment.add_keyframe(property_enum, offset_time, float_value)
                 print(f"成功添加关键帧: {property_type} 在 {time}s")
             except Exception as e:
-                print(f"添加关键帧失败: {str(e)}")
-        
+                failed.append(f"{property_type} at {time}s: {e}")
+
         # 清空待处理的关键帧
         self.pending_keyframes = []
+        if failed:
+            raise ValueError("Keyframes could not be applied: " + "; ".join(failed))
 
     @property
     def end_time(self) -> int:

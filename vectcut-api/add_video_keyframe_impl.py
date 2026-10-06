@@ -1,3 +1,5 @@
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: keyframes are validated against the track's clips before any is queued, so a bad one is an error and nothing is half-applied.
+# See NOTICE at the repository root.
 import pyJianYingDraft as draft
 from pyJianYingDraft import exceptions
 from create_draft import get_or_create_draft
@@ -90,14 +92,15 @@ def add_video_keyframe_impl(
                 "value": value
             }]
         
-        # Process each keyframe
-        added_count = 0
+        # Validate all keyframes first, so a bad one leaves the draft unchanged
         for i, kf in enumerate(keyframes_to_process):
             try:
-                _add_single_keyframe(track, kf["property_type"], kf["time"], kf["value"])
-                added_count += 1
+                _validate_keyframe(track, kf["property_type"], kf["time"], kf["value"])
             except Exception as e:
-                raise Exception(f"Failed to add keyframe #{i+1} (property_type={kf['property_type']}, time={kf['time']}, value={kf['value']}): {str(e)}")
+                raise Exception(f"Keyframe #{i+1} (property_type={kf['property_type']}, time={kf['time']}, value={kf['value']}): {str(e)}")
+        for kf in keyframes_to_process:
+            track.add_pending_keyframe(kf["property_type"], kf["time"], kf["value"])
+        added_count = len(keyframes_to_process)
         
         result = {
             "draft_id": draft_id,
@@ -116,9 +119,9 @@ def add_video_keyframe_impl(
         raise Exception(f"Failed to add keyframe: {str(e)}")
 
 
-def _add_single_keyframe(track, property_type: str, time: float, value: str):
+def _validate_keyframe(track, property_type: str, time: float, value: str):
     """
-    Internal function to add a single keyframe
+    Check a keyframe can be applied: known property, valid value, and a clip on the track at that time
     """
     # Convert property type string to enum value, validate if property type is valid
     try:
@@ -164,6 +167,7 @@ def _add_single_keyframe(track, property_type: str, time: float, value: str):
             float_value = float(value)
     except ValueError:
         raise Exception(f"Invalid value format: {value}")
-    
-    # If track object is provided, use the track's add_pending_keyframe method
-    track.add_pending_keyframe(property_type, time, value)
+
+    target_time = int(float(time) * 1000000)
+    if not any(seg.target_timerange.start <= target_time <= seg.target_timerange.end for seg in track.segments):
+        raise Exception(f"No clip on track '{track.name}' at {time}s: add the clip first, or use a time inside it")

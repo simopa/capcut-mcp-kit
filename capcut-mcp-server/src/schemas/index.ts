@@ -47,12 +47,9 @@ export const CreateDraftSchema = z.object({
     .max(4096, 'Height must not exceed 4096')
     .default(1080)
     .describe('Video height in pixels'),
-  fps: z.number()
-    .int()
-    .min(24, 'FPS must be at least 24')
-    .max(120, 'FPS must not exceed 120')
+  fps: z.union([z.literal(24), z.literal(25), z.literal(30), z.literal(50), z.literal(60)])
     .default(30)
-    .describe('Frames per second'),
+    .describe('Frames per second: 24, 25, 30, 50 or 60'),
   response_format: ResponseFormatSchema
 }).strict();
 
