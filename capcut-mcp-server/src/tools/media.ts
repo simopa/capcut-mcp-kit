@@ -6,6 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { apiClient } from '../services/api-client.js';
+import * as C from '../contracts.js';
 import { backendDir } from '../services/backend.js';
 
 const PAGE_CHARS = 12000;
@@ -25,7 +26,6 @@ const LocalPath = z.string()
   .min(1)
   .describe('Absolute local path to the video or audio file');
 
-type Segment = { start: number; end: number; text: string };
 
 function clock(t: number): string {
   const h = Math.floor(t / 3600);
@@ -77,17 +77,17 @@ Pages hold ~${PAGE_CHARS} characters; the reply says where to continue (from_tim
     },
     async (params) => {
       try {
-        const r = await apiClient.request<any>('/transcribe', 'POST', {
+        const r = await apiClient.request('/transcribe', 'POST', {
           path: params.path, language: params.language, model: params.model, wait: 45,
           page: { from_time: params.from_time, to_time: params.to_time, max_chars: PAGE_CHARS }
-        });
-        if (!r.success) throw new Error(r.error);
+        }, C.TranscribeResult);
+        if (!r.success || !r.result) throw new Error(r.error);
         const out = r.result;
         if (out.status === 'running') {
           return text(`Transcription running (${out.elapsed}s elapsed). Call capcut_transcribe again with the same path to keep waiting.`);
         }
         const t = out.page;
-        const body = (t.blocks as Segment[]).map((b) => `[${clock(b.start)}–${clock(b.end)}] ${b.text}\n`).join('');
+        const body = t.blocks.map((b) => `[${clock(b.start)}–${clock(b.end)}] ${b.text}\n`).join('');
         const header = `Transcript of ${t.source} (${t.language}, ${clock(t.duration)}, ${t.engine} ${t.model})\n\n`;
         const footer = t.next_from !== null
           ? `\n[Page ends at ${clock(t.next_from)}: call again with from_time=${Math.floor(t.next_from)} for more]`
@@ -129,7 +129,7 @@ Args:
     },
     async (params) => {
       try {
-        const r = await apiClient.request<any>('/detect_pauses', 'POST', params);
+        const r = await apiClient.request('/detect_pauses', 'POST', params, C.SpeechRangesResult);
         if (!r.success) throw new Error(r.error);
         const p = r.result;
         const sample = p.ranges.slice(0, 15).map(([s, e]: number[]) => `${clock(s)}–${clock(e)}`).join(', ');
@@ -189,7 +189,7 @@ Returns the number of pieces, the new duration and timeline_end (where the next 
     },
     async (params) => {
       try {
-        const r = await apiClient.request<any>('/add_video_without_pauses', 'POST', params);
+        const r = await apiClient.request('/add_video_without_pauses', 'POST', params, C.WithoutPausesResult);
         if (!r.success) throw new Error(r.error);
         const p = r.result;
         return text(
@@ -245,8 +245,8 @@ Args:
     async (params) => {
       try {
         const { position_y, ...rest } = params;
-        const r = await apiClient.request<any>('/add_auto_subtitles', 'POST',
-          { ...rest, transform_y: (0.5 - position_y) * 2 });
+        const r = await apiClient.request('/add_auto_subtitles', 'POST',
+          { ...rest, transform_y: (0.5 - position_y) * 2 }, C.AutoSubtitlesResult);
         if (!r.success) throw new Error(r.error);
         return text(`Added ${r.result.subtitles} subtitles to draft ${r.result.draft_id}. First:\n${r.result.first}`);
       } catch (error) {
@@ -288,7 +288,7 @@ Args:
     },
     async (params) => {
       try {
-        const r = await apiClient.request<any>('/add_background_music', 'POST', params);
+        const r = await apiClient.request('/add_background_music', 'POST', params, C.MusicResult);
         if (!r.success) throw new Error(r.error);
         const p = r.result;
         return text(`Added music on track "${p.track}" from ${p.start}s to ${p.end}s (${p.pieces} piece(s))` +
@@ -310,10 +310,11 @@ from capcut_open_project, the existing project's tracks), to place new items aft
     },
     async (params) => {
       try {
-        const r = await apiClient.request<any>('/timeline', 'POST', params);
+        const r = await apiClient.request('/timeline', 'POST', params, C.TimelineResult);
         if (!r.success) throw new Error(r.error);
         const t = r.result;
-        const line = (x: any) => `- ${x.type} "${x.name}": ${x.clips} clip(s), ends at ${x.end}s`;
+        const line = (x: { type: string | null; name: string; clips: number; end: number }) =>
+          `- ${x.type} "${x.name}": ${x.clips} clip(s), ends at ${x.end}s`;
         let out = `## Timeline (${t.duration}s)\n${t.tracks.map(line).join('\n') || '_empty_'}`;
         if (t.existing_project) {
           out += `\n\n### Existing project "${t.existing_project.name}" (${t.existing_project.duration}s)\n` +
@@ -371,7 +372,7 @@ Args:
     },
     async (params) => {
       try {
-        const r = await apiClient.request<any>('/add_camera_move', 'POST', params);
+        const r = await apiClient.request('/add_camera_move', 'POST', params, C.CameraMoveResult);
         if (!r.success) throw new Error(r.error);
         const p = r.result;
         return text(p.kind === 'effect'

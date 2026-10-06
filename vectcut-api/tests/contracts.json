@@ -1,0 +1,690 @@
+{
+  "DraftRefResult": {
+    "type": "object",
+    "properties": {
+      "draft_id": {
+        "type": "string"
+      },
+      "draft_url": {
+        "type": "string"
+      },
+      "moved_to_free_track": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "requested_track": {
+              "type": "string"
+            },
+            "track": {
+              "type": "string"
+            },
+            "start": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "requested_track",
+            "track",
+            "start"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "draft_id",
+      "draft_url"
+    ],
+    "additionalProperties": true
+  },
+  "CreateDraftResult": {
+    "type": "object",
+    "properties": {
+      "draft_id": {
+        "type": "string"
+      },
+      "draft_url": {
+        "type": "string"
+      },
+      "width": {
+        "type": "number"
+      },
+      "height": {
+        "type": "number"
+      },
+      "fps": {
+        "type": "number"
+      }
+    },
+    "required": [
+      "draft_id",
+      "draft_url",
+      "width",
+      "height",
+      "fps"
+    ],
+    "additionalProperties": true
+  },
+  "SaveDraftResult": {
+    "type": "object",
+    "properties": {
+      "draft_url": {
+        "type": "string"
+      },
+      "backups": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "added_tracks": {
+        "type": "number"
+      }
+    },
+    "required": [
+      "draft_url",
+      "backups"
+    ],
+    "additionalProperties": true
+  },
+  "DurationResult": {
+    "type": "object",
+    "properties": {
+      "duration": {
+        "type": "number"
+      },
+      "format": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "duration",
+      "format"
+    ],
+    "additionalProperties": true
+  },
+  "ListTypesResult": {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "ListProjectsResult": {
+    "type": "object",
+    "properties": {
+      "projects": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "modified_time": {
+              "type": "string"
+            },
+            "is_capcut_project": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "modified_time",
+            "is_capcut_project"
+          ],
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": [
+      "projects"
+    ],
+    "additionalProperties": true
+  },
+  "OpenProjectResult": {
+    "type": "object",
+    "properties": {
+      "draft_id": {
+        "type": "string"
+      },
+      "project_name": {
+        "type": "string"
+      },
+      "path": {
+        "type": "string"
+      },
+      "width": {
+        "type": "number"
+      },
+      "height": {
+        "type": "number"
+      },
+      "fps": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "duration": {
+        "type": "number"
+      },
+      "tracks": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": "string"
+            },
+            "clips": {
+              "type": "number"
+            },
+            "end": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "name",
+            "clips",
+            "end"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "exact_round_trip": {
+        "type": "boolean"
+      },
+      "note": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "draft_id",
+      "project_name",
+      "path",
+      "width",
+      "height",
+      "fps",
+      "duration",
+      "tracks",
+      "exact_round_trip",
+      "note"
+    ],
+    "additionalProperties": true
+  },
+  "TranscribeResult": {
+    "anyOf": [
+      {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "running"
+          },
+          "elapsed": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "status",
+          "elapsed"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "done"
+          },
+          "page": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string"
+              },
+              "language": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "duration": {
+                "type": "number"
+              },
+              "engine": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "blocks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "start": {
+                      "type": "number"
+                    },
+                    "end": {
+                      "type": "number"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "end",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "next_from": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "source",
+              "language",
+              "duration",
+              "engine",
+              "model",
+              "blocks",
+              "next_from"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "status",
+          "page"
+        ],
+        "additionalProperties": false
+      }
+    ]
+  },
+  "SpeechRangesResult": {
+    "type": "object",
+    "properties": {
+      "method": {
+        "type": "string",
+        "enum": [
+          "transcript",
+          "audio"
+        ]
+      },
+      "start": {
+        "type": "number"
+      },
+      "end": {
+        "type": "number"
+      },
+      "ranges": {
+        "type": "array",
+        "items": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "original_duration": {
+        "type": "number"
+      },
+      "kept_duration": {
+        "type": "number"
+      },
+      "removed_duration": {
+        "type": "number"
+      },
+      "cuts": {
+        "type": "number"
+      }
+    },
+    "required": [
+      "method",
+      "start",
+      "end",
+      "ranges",
+      "original_duration",
+      "kept_duration",
+      "removed_duration",
+      "cuts"
+    ],
+    "additionalProperties": false
+  },
+  "WithoutPausesResult": {
+    "type": "object",
+    "properties": {
+      "draft_id": {
+        "type": "string"
+      },
+      "draft_url": {
+        "type": "string"
+      },
+      "moved_to_free_track": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "requested_track": {
+              "type": "string"
+            },
+            "track": {
+              "type": "string"
+            },
+            "start": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "requested_track",
+            "track",
+            "start"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "method": {
+        "type": "string",
+        "enum": [
+          "transcript",
+          "audio"
+        ]
+      },
+      "segments": {
+        "type": "number"
+      },
+      "cuts": {
+        "type": "number"
+      },
+      "original_duration": {
+        "type": "number"
+      },
+      "new_duration": {
+        "type": "number"
+      },
+      "removed_duration": {
+        "type": "number"
+      },
+      "timeline_end": {
+        "type": "number"
+      }
+    },
+    "required": [
+      "draft_id",
+      "draft_url",
+      "method",
+      "segments",
+      "cuts",
+      "original_duration",
+      "new_duration",
+      "removed_duration",
+      "timeline_end"
+    ],
+    "additionalProperties": true
+  },
+  "AutoSubtitlesResult": {
+    "type": "object",
+    "properties": {
+      "draft_id": {
+        "type": "string"
+      },
+      "subtitles": {
+        "type": "number"
+      },
+      "first": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "draft_id",
+      "subtitles",
+      "first"
+    ],
+    "additionalProperties": true
+  },
+  "MusicResult": {
+    "type": "object",
+    "properties": {
+      "draft_id": {
+        "type": "string"
+      },
+      "draft_url": {
+        "type": "string"
+      },
+      "moved_to_free_track": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "requested_track": {
+              "type": "string"
+            },
+            "track": {
+              "type": "string"
+            },
+            "start": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "requested_track",
+            "track",
+            "start"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "track": {
+        "type": "string"
+      },
+      "pieces": {
+        "type": "number"
+      },
+      "start": {
+        "type": "number"
+      },
+      "end": {
+        "type": "number"
+      },
+      "ducked_spans": {
+        "type": "number"
+      }
+    },
+    "required": [
+      "draft_id",
+      "draft_url",
+      "track",
+      "pieces",
+      "start",
+      "end",
+      "ducked_spans"
+    ],
+    "additionalProperties": true
+  },
+  "TimelineResult": {
+    "type": "object",
+    "properties": {
+      "draft_id": {
+        "type": "string"
+      },
+      "duration": {
+        "type": "number"
+      },
+      "tracks": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "clips": {
+              "type": "number"
+            },
+            "end": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "name",
+            "type",
+            "clips",
+            "end"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "existing_project": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "duration": {
+            "type": "number"
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "clips": {
+                  "type": "number"
+                },
+                "end": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "type",
+                "name",
+                "clips",
+                "end"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "name",
+          "duration",
+          "tracks"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "draft_id",
+      "duration",
+      "tracks"
+    ],
+    "additionalProperties": false
+  },
+  "CameraMoveResult": {
+    "type": "object",
+    "properties": {
+      "draft_id": {
+        "type": "string"
+      },
+      "draft_url": {
+        "type": "string"
+      },
+      "moved_to_free_track": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "requested_track": {
+              "type": "string"
+            },
+            "track": {
+              "type": "string"
+            },
+            "start": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "requested_track",
+            "track",
+            "start"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "move": {
+        "type": "string"
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "keyframes",
+          "effect"
+        ]
+      },
+      "clips": {
+        "type": "number"
+      },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "compose",
+          "replace",
+          "refuse"
+        ]
+      }
+    },
+    "required": [
+      "draft_id",
+      "draft_url",
+      "move",
+      "kind",
+      "clips"
+    ],
+    "additionalProperties": true
+  }
+}

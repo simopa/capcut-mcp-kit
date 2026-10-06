@@ -3,6 +3,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { apiClient } from '../services/api-client.js';
 import { ResponseFormat } from '../types.js';
+import type { CreatedDraft, DraftRef, MediaDuration, SavedDraft } from '../contracts.js';
 import {
   CreateDraftSchema,
   AddVideoSchema,
@@ -35,48 +36,43 @@ import {
   type OpenProjectInput
 } from '../schemas/index.js';
 
-// Utility function to format responses
-function formatResponse(data: any, format: ResponseFormat): {
+type ToolReply = {
   content: Array<{ type: "text"; text: string }>;
-  structuredContent?: any;
-} {
-  if (format === ResponseFormat.JSON) {
-    return {
-      content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
-      structuredContent: data
-    };
-  } else {
-    // Markdown format
-    let markdown = '';
-    if (data.draft_id) {
-      markdown += `## Draft Created\n\n`;
-      markdown += `- **Draft ID**: \`${data.draft_id}\`\n`;
-      markdown += `- **Dimensions**: ${data.width}x${data.height}\n`;
-      markdown += `- **FPS**: ${data.fps}\n`;
-    } else if (data.duration !== undefined) {
-      markdown += `## Media Duration\n\n`;
-      markdown += `- **Duration**: ${data.duration.toFixed(2)}s\n`;
-      if (data.format) markdown += `- **Format**: ${data.format}\n`;
-      if (data.width) markdown += `- **Resolution**: ${data.width}x${data.height}\n`;
-    } else if (data.draft_url) {
-      markdown += `## Draft Saved\n\n`;
-      markdown += `Draft saved successfully at:\n\`${data.draft_url}\`\n\n`;
-      if (data.backups?.length) {
-        markdown += `The previous version was moved to:\n${data.backups.map((b: string) => `\`${b}\``).join('\n')}\n\n`;
-      }
-      markdown += data.added_tracks !== undefined
-        ? `Added ${data.added_tracks} track(s) to the existing project; open it in CapCut to see them.\n`
-        : `The project is already in CapCut's projects folder: restart CapCut to see it in the list.\n`;
-    } else {
-      markdown += `## Operation Successful\n\n`;
-      markdown += JSON.stringify(data, null, 2);
-    }
-    return {
-      content: [{ type: "text" as const, text: markdown }],
-      structuredContent: data
-    };
-  }
+  structuredContent?: Record<string, unknown>;
+};
+
+/** JSON replies return the backend's result as is; markdown replies use the tool's own summary. */
+function formatResponse<T extends object>(data: T, format: ResponseFormat, markdown: (d: T) => string): ToolReply {
+  return {
+    content: [{ type: "text" as const, text: format === ResponseFormat.JSON ? JSON.stringify(data, null, 2) : markdown(data) }],
+    structuredContent: data as Record<string, unknown>
+  };
 }
+
+const createdMarkdown = (d: CreatedDraft) =>
+  `## Draft Created\n\n- **Draft ID**: \`${d.draft_id}\`\n- **Dimensions**: ${d.width}x${d.height}\n- **FPS**: ${d.fps}\n`;
+
+const addedMarkdown = (what: string) => (d: DraftRef) => {
+  let md = `Added ${what} to draft \`${d.draft_id}\`.\n`;
+  for (const m of d.moved_to_free_track ?? []) {
+    md += `- Track "${m.requested_track}" was busy at ${m.start}s: placed on "${m.track}" instead.\n`;
+  }
+  return md;
+};
+
+const savedMarkdown = (d: SavedDraft) => {
+  let md = `## Draft Saved\n\nDraft saved successfully at:\n\`${d.draft_url}\`\n\n`;
+  if (d.backups.length) {
+    md += `The previous version was moved to:\n${d.backups.map((b) => `\`${b}\``).join('\n')}\n\n`;
+  }
+  md += d.added_tracks !== undefined
+    ? `Added ${d.added_tracks} track(s) to the existing project; open it in CapCut to see them.\n`
+    : `The project is already in CapCut's projects folder: restart CapCut to see it in the list.\n`;
+  return md;
+};
+
+const durationMarkdown = (d: MediaDuration) =>
+  `## Media Duration\n\n- **Duration**: ${d.duration.toFixed(2)}s\n- **Format**: ${d.format}\n`;
 
 function handleError(error: unknown): {
   content: Array<{ type: "text"; text: string }>;
@@ -126,7 +122,7 @@ Examples:
           throw new Error(response.error || 'Failed to create draft');
         }
 
-        return formatResponse(response.result, params.response_format);
+        return formatResponse(response.result, params.response_format, createdMarkdown);
       } catch (error) {
         return handleError(error);
       }
@@ -163,7 +159,7 @@ Examples:
           throw new Error(response.error || 'Failed to add video');
         }
 
-        return formatResponse(response.result, params.response_format);
+        return formatResponse(response.result, params.response_format, addedMarkdown('the video'));
       } catch (error) {
         return handleError(error);
       }
@@ -198,7 +194,7 @@ Examples:
           throw new Error(response.error || 'Failed to add audio');
         }
 
-        return formatResponse(response.result, params.response_format);
+        return formatResponse(response.result, params.response_format, addedMarkdown('the audio'));
       } catch (error) {
         return handleError(error);
       }
@@ -233,7 +229,7 @@ Examples:
           throw new Error(response.error || 'Failed to add text');
         }
 
-        return formatResponse(response.result, params.response_format);
+        return formatResponse(response.result, params.response_format, addedMarkdown('the text'));
       } catch (error) {
         return handleError(error);
       }
@@ -268,7 +264,7 @@ Examples:
           throw new Error(response.error || 'Failed to add image');
         }
 
-        return formatResponse(response.result, params.response_format);
+        return formatResponse(response.result, params.response_format, addedMarkdown('the image'));
       } catch (error) {
         return handleError(error);
       }
@@ -308,7 +304,7 @@ Example SRT format:
           throw new Error(response.error || 'Failed to add subtitle');
         }
 
-        return formatResponse(response.result, params.response_format);
+        return formatResponse(response.result, params.response_format, addedMarkdown('the subtitles'));
       } catch (error) {
         return handleError(error);
       }
@@ -350,7 +346,7 @@ Examples:
           throw new Error(response.error || 'Failed to add keyframe');
         }
 
-        return formatResponse(response.result, params.response_format);
+        return formatResponse(response.result, params.response_format, addedMarkdown('the keyframes'));
       } catch (error) {
         return handleError(error);
       }
@@ -386,7 +382,7 @@ Examples:
           throw new Error(response.error || 'Failed to add effect');
         }
 
-        return formatResponse(response.result, params.response_format);
+        return formatResponse(response.result, params.response_format, addedMarkdown('the effect'));
       } catch (error) {
         return handleError(error);
       }
@@ -421,7 +417,7 @@ Examples:
           throw new Error(response.error || 'Failed to add sticker');
         }
 
-        return formatResponse(response.result, params.response_format);
+        return formatResponse(response.result, params.response_format, addedMarkdown('the sticker'));
       } catch (error) {
         return handleError(error);
       }
@@ -461,7 +457,7 @@ moved to ~/Movies/CapCut MCP Backups, never deleted. Replacing a project is refu
           throw new Error(response.error || 'Failed to save draft');
         }
 
-        return formatResponse(response.result, params.response_format);
+        return formatResponse(response.result, params.response_format, savedMarkdown);
       } catch (error) {
         return handleError(error);
       }
@@ -496,7 +492,7 @@ Examples:
           throw new Error(response.error || 'Failed to get duration');
         }
 
-        return formatResponse(response.result, params.response_format);
+        return formatResponse(response.result, params.response_format, durationMarkdown);
       } catch (error) {
         return handleError(error);
       }

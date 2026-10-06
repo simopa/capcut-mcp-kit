@@ -76,7 +76,8 @@ vectcut-api/
   - tests/test_save_draft_local_paths.py: never writes into the real CapCut folder;
     tests/test_save_draft_safety.py, test_media_analysis.py, test_no_false_success.py,
     test_draft_store.py, test_existing_project.py, test_camera_moves.py,
-    test_downloader.py, test_placement_and_music.py, test_catalog_and_paging.py (new).
+    test_downloader.py, test_placement_and_music.py, test_catalog_and_paging.py,
+    test_contracts.py (new).
   - pyJianYingDraft/script_file.py: import_srt crashed when no font was given.
   - The upstream mcp-server/ folder (a copy of the project below) is not included.
 
@@ -106,6 +107,10 @@ capcut-mcp-server/
   - services/backend.ts: the autostart checks the backend's identity and API version,
     takes a start lock shared by all clients, re-checks after a lost connection, and
     passes the port; services/auth.ts sends the shared token. Node tests in test/.
+  - contracts.ts (new): the backend's replies as zod schemas; requests are typed from
+    the tool schemas and every reply is checked (a mismatch is an error); markdown
+    replies are formatted per tool (add_* replies were shown as "Draft Created").
+    scripts/export-contracts.mjs writes them to vectcut-api/tests/contracts.json.
   - Errors are returned with isError; capcut_save_draft takes overwrite and reports
     where replaced projects were moved.
 ------------------------------------------------------------------------

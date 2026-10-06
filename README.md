@@ -64,7 +64,10 @@ so the next tool call starts the new one. Drafts in progress live in
 `~/Library/Application Support/capcut-mcp-kit`; copy that folder to keep them on a new Mac.
 
 Tests: `cd vectcut-api && venv/bin/python -m pip install pytest && venv/bin/python -m pytest` and
-`cd capcut-mcp-server && npm test`; GitHub Actions runs both on macOS.
+`cd capcut-mcp-server && npm test`; GitHub Actions runs both on macOS. The backend's replies are
+described once, in `capcut-mcp-server/src/contracts.ts`: the MCP server checks every reply against
+it, and the backend's tests check their real replies against the same contracts (exported to
+`vectcut-api/tests/contracts.json` by `npm run contracts`).
 
 ## Use
 

@@ -7,7 +7,8 @@ process.env.CAPCUT_MCP_TOKEN = 'secret-for-test';
 const fake = await fakeBackend((req) => {
   if (req.url === '/health') return KIT_HEALTH;
   if (req.url === '/refuse') return [401, { success: false, error: 'Missing or wrong token' }];
-  return [200, { success: true, output: { draft_id: 'd1' }, error: '' }];
+  if (req.url === '/add_video') return [200, { success: true, output: { draft_id: 'd1' }, error: '' }]; // no draft_url
+  return [200, { success: true, output: { draft_id: 'd1', draft_url: 'u' }, error: '' }];
 });
 const { apiClient } = await import('../dist/services/api-client.js');
 after(() => fake.close());
@@ -15,7 +16,7 @@ after(() => fake.close());
 test('sends the token and maps 0..1 top-left positions to centered half-canvas units', async () => {
   const res = await apiClient.addText({ draft_id: 'd1', text: 'Hi', position_x: 0, position_y: 1, scale: 2 });
   assert.equal(res.success, true);
-  assert.deepEqual(res.result, { draft_id: 'd1' });
+  assert.deepEqual(res.result, { draft_id: 'd1', draft_url: 'u' });
   const call = fake.requests.find((r) => r.url === '/add_text');
   assert.equal(call.headers['x-capcut-kit-token'], 'secret-for-test');
   assert.equal(call.body.transform_x, -1);
@@ -35,4 +36,11 @@ test('a refused request is an error with the reason', async () => {
   const res = await apiClient.request('/refuse', 'POST', {});
   assert.equal(res.success, false);
   assert.match(res.error, /refused the request: Missing or wrong token/);
+});
+
+test('a reply that breaks the contract is an error, not a silent success', async () => {
+  const res = await apiClient.addVideo({ draft_id: 'd1', video_url: '/v.mp4', start: 0, volume: 1, speed: 1,
+    target_start: 0, auto_track: true });
+  assert.equal(res.success, false);
+  assert.match(res.error, /Unexpected reply from the backend for \/add_video \(draft_url: Required\)/);
 });

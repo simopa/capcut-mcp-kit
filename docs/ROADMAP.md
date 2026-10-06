@@ -53,10 +53,12 @@ CapCut drafts folder.
 - One camera-move catalog for backend and MCP server; tool descriptions cut by about 40%;
   transcripts paged in the backend without word timings.
 
-## Next
-
 **Typed contracts**
-- Typed request/response objects in the MCP server instead of `any`.
+- The backend's replies are zod schemas (`contracts.ts`); requests are typed from the tool schemas,
+  every reply is checked at runtime, and the backend's tests check their real replies against the
+  same contracts, so the two sides cannot drift apart.
+
+## Next
 
 **Safe retries**
 - Optional request IDs so a retried call is not applied twice, and an expected revision so two
