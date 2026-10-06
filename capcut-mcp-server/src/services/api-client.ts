@@ -143,6 +143,14 @@ export class CapCutApiClient {
     return this.request('/save_draft', 'POST', { draft_id: draftId, project_name: projectName, overwrite });
   }
 
+  async listProjects() {
+    return this.request<{ projects: Array<{ name: string; modified_time: string; is_capcut_project: boolean }> }>('/list_projects', 'GET');
+  }
+
+  async openProject(projectName: string) {
+    return this.request<any>('/open_project', 'POST', { project_name: projectName });
+  }
+
   async listTypes(endpoint: string) {
     return this.request<Array<{ name: string }>>(endpoint, 'GET');
   }

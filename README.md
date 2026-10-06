@@ -85,6 +85,8 @@ session. Its log is `vectcut-api/server.log`. To start it by hand instead, run `
 | `capcut_add_sticker` | Sticker by CapCut resource ID (see limitations) |
 | `capcut_list_types` | Exact CapCut names: transitions, animations, text animations, effects, masks, audio effects, fonts |
 | `capcut_save_draft` | Save into CapCut's projects folder under `project_name` |
+| `capcut_list_projects` | Projects in CapCut's folder, most recent first |
+| `capcut_open_project` | Open a project made in CapCut to add to it (new tracks only; existing clips untouched) |
 | `capcut_get_duration` | Duration and size of a media file |
 | `capcut_transcribe` | Local Whisper transcript as time-stamped blocks (paginated, cached next to the file) |
 | `capcut_detect_pauses` | Preview speech vs pauses and how much would be cut |
@@ -104,6 +106,10 @@ Conventions:
 - **Camera moves** start and end on the clip's own framing, so they only affect their range; with
   `capcut_add_video_without_pauses`, `punch_in_zoom: 1.12` alternates a tighter framing on every
   other piece to hide jump cuts.
+- **Existing projects:** `capcut_open_project` gives a draft that adds new tracks to a project made
+  in CapCut. Saving writes the original timeline back unchanged plus the additions, in all the copies
+  CapCut keeps; it refuses while CapCut is open or if the project changed since it was opened, and
+  backs up the whole project folder first. Existing clips cannot be edited this way.
 - **Saving** again under the same `project_name` replaces the project that draft saved before; the
   old folder is moved to `~/Movies/CapCut MCP Backups` (set `CAPCUT_MCP_BACKUP_DIR` to change it),
   never deleted, and backups are not pruned. A project the draft did not save is replaced only with

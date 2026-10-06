@@ -26,16 +26,21 @@ CapCut drafts folder.
 - One lock per draft; a change that fails leaves the draft exactly as it was.
 - Subtitles are placed by reading the clips on the timeline (repeats and speed included).
 
+**Adding to existing projects**
+- `capcut_open_project`: the project's timeline is kept as the exact bytes read; saving writes it back
+  unchanged plus the new tracks, in every copy CapCut keeps, after a full backup.
+- Refused while CapCut is open, if the project changed since it was opened, or if its timeline copies
+  disagree. Tested on CapCut 9.1 projects, which round-trip byte for byte.
+
 ## Next
 
 **Safe retries**
 - Optional request IDs so a retried call is not applied twice, and an expected revision so two
   clients cannot overwrite each other's changes unknowingly.
 
-**Editing existing projects**
-- A conservative adapter for projects made in CapCut: load and save with no changes must give back
-  the same file, unknown fields included, before any editing is allowed.
-- Write only if the project on disk is still the one that was read.
+**Editing clips already in a project**
+- Today an opened project can only receive new tracks. Changing its own clips (trim, keyframes,
+  camera moves) needs an adapter per clip type, each proven by a no-change round trip first.
 
 **Keyframes and camera moves**
 - An explicit rule when a move overlaps existing keyframes (refuse, replace or compose).

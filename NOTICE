@@ -45,13 +45,18 @@ vectcut-api/
     are stored in SQLite and survive a restart; routes that change a draft run under
     a per-draft lock and roll back on failure; an unknown draft_id is an error (no
     more implicit creation).
+  - existing_project.py (new), save_draft_impl.py, capcut_server.py: open a project
+    made in CapCut (/open_project) and add tracks to it; the original timeline is
+    written back unchanged in all its copies, after a full backup, and only if the
+    project did not change since it was opened and CapCut is closed. list_projects
+    flags real projects.
   - media_analysis.py: subtitles are placed from the clips on the timeline instead
     of an in-memory list.
   - capcut_server.py: the web preview routes are off unless CAPCUT_ENABLE_PREVIEW=1;
     requests with a non-loopback Host or Origin are refused.
   - tests/test_save_draft_local_paths.py: never writes into the real CapCut folder;
     tests/test_save_draft_safety.py, test_media_analysis.py, test_no_false_success.py,
-    test_draft_store.py (new).
+    test_draft_store.py, test_existing_project.py (new).
   - pyJianYingDraft/script_file.py: import_srt crashed when no font was given.
   - The upstream mcp-server/ folder (a copy of the project below) is not included.
 
@@ -74,6 +79,7 @@ capcut-mcp-server/
   - Content-aware tools (tools/media.ts): capcut_transcribe, capcut_detect_pauses,
     capcut_add_video_without_pauses (with alternating punch-in), capcut_add_auto_subtitles,
     capcut_add_camera_move.
+  - capcut_list_projects and capcut_open_project (add to an existing project).
   - Errors are returned with isError; capcut_save_draft takes overwrite and reports
     where replaced projects were moved.
 ------------------------------------------------------------------------

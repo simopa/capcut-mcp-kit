@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: save straight into the local CapCut drafts folder (macOS/Windows), rename the folder to project_name, fix draft_meta_info.json; media under ~/Movies referenced in place; each file copied once even when used by many clips; validated folder names, staging + swap, existing folders moved to backups instead of deleted, failures reported.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: save straight into the local CapCut drafts folder (macOS/Windows), rename the folder to project_name, fix draft_meta_info.json; media under ~/Movies referenced in place; each file copied once even when used by many clips; validated folder names, staging + swap, existing folders moved to backups instead of deleted, failures reported; drafts opened from an existing project are saved by existing_project.
 # See NOTICE at the repository root.
 import os
 import pyJianYingDraft as draft
@@ -198,6 +198,71 @@ def write_kit_marker(folder, draft_id):
     with open(os.path.join(folder, KIT_MARKER), "w", encoding="utf-8") as f:
         json.dump({"draft_id": draft_id}, f)
 
+def copy_assets(script, task_id, path_base, path_name, dest_root):
+    """Point every media material at <path_base>/<path_name>/assets/<type>/<name> (where it will be
+    once dest_root is in place) and copy the files into <dest_root>/assets/<type>/<name>. Media
+    under ~/Movies is referenced where it is. Raises SaveDraftError if any file is missing."""
+    download_tasks = []
+    missing = []
+    materials = [(audio, "audio") for audio in (script.materials.audios or [])]
+    for video in (script.materials.videos or []):
+        if video.material_type == 'photo':
+            materials.append((video, "image"))
+        elif video.material_type == 'video':
+            materials.append((video, "video"))
+    for material, asset_type in materials:
+        remote_url = material.remote_url
+        material_name = material.material_name
+        material.replace_path = build_asset_path(path_base, path_name, asset_type, material_name)
+        if not remote_url:
+            missing.append(f"{material_name} (no source)")
+            continue
+        if use_in_place(material, remote_url):
+            continue
+        download_tasks.append({
+            'type': asset_type,
+            'func': download_file,
+            'args': (remote_url, os.path.join(dest_root, "assets", asset_type, material_name)),
+            'material': material
+        })
+
+    update_task_fields(task_id, message=f"Collected {len(download_tasks)} download tasks in total", progress=10)
+
+    # Several clips of the same file share one destination: copy/download it only once
+    unique_tasks = {}
+    for task in download_tasks:
+        unique_tasks.setdefault(task['args'][1], task)
+    download_tasks = list(unique_tasks.values())
+
+    completed_files = 0
+    if download_tasks:
+        logger.info(f"Starting concurrent download of {len(download_tasks)} files...")
+        with ThreadPoolExecutor(max_workers=16) as executor:
+            future_to_task = {
+                executor.submit(task['func'], *task['args']): task
+                for task in download_tasks
+            }
+            for future in as_completed(future_to_task):
+                task = future_to_task[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"Task {task_id}: Download {task['type']} file failed: {str(e)}", exc_info=True)
+                    missing.append(f"{task['material'].material_name} ({e})")
+                    continue
+                completed_files += 1
+                total = len(download_tasks)
+                update_task_fields(task_id, completed_files=completed_files, total_files=total,
+                                   progress=10 + int((completed_files / total) * 60),
+                                   message=f"Downloaded {completed_files}/{total} files")
+    for task in download_tasks:
+        if not os.path.isfile(task['args'][1]):
+            name = task['material'].material_name
+            if not any(m.startswith(name) for m in missing):
+                missing.append(f"{name} (not copied)")
+    if missing:
+        raise SaveDraftError("Draft not saved, some media could not be copied: " + "; ".join(missing))
+
 def save_draft_background(draft_id, draft_folder, task_id, project_name=None, auto_deploy=True, overwrite=False):
     """Save a draft: write it into a staging folder next to its destination, check every asset
     arrived, then swap it in. An existing folder is moved to backups, never deleted.
@@ -211,6 +276,13 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
             script = get_draft(draft_id)
         except DraftNotFound as e:
             raise SaveDraftError(str(e))
+        if getattr(script, "base_project", None):
+            # Opened with capcut_open_project: add to that project, never replace it
+            if project_name and project_name.strip() != script.base_project["name"]:
+                raise SaveDraftError(f"This draft adds to the existing project '{script.base_project['name']}': "
+                                     f"leave project_name out (or use that name)")
+            import existing_project
+            return existing_project.save_into_existing(draft_id, script, task_id)
 
         update_task_fields(task_id, status="processing", message="Preparing draft files", progress=0)
 
@@ -245,68 +317,9 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
         update_task_fields(task_id, message="Updating media file metadata", progress=5)
         update_media_metadata(script, task_id)
 
-        # replace_path is where the asset will be once the staging folder is renamed to draft_dir;
-        # the file itself is copied into the staging folder.
-        download_tasks = []
-        missing = []
-        materials = [(audio, "audio") for audio in (script.materials.audios or [])]
-        for video in (script.materials.videos or []):
-            if video.material_type == 'photo':
-                materials.append((video, "image"))
-            elif video.material_type == 'video':
-                materials.append((video, "video"))
-        for material, asset_type in materials:
-            remote_url = material.remote_url
-            material_name = material.material_name
-            material.replace_path = build_asset_path(output_base_dir, final_name, asset_type, material_name)
-            if not remote_url:
-                missing.append(f"{material_name} (no source)")
-                continue
-            if use_in_place(material, remote_url):
-                continue
-            download_tasks.append({
-                'type': asset_type,
-                'func': download_file,
-                'args': (remote_url, os.path.join(stage_dir, "assets", asset_type, material_name)),
-                'material': material
-            })
-
-        update_task_fields(task_id, message=f"Collected {len(download_tasks)} download tasks in total", progress=10)
-
-        # Several clips of the same file share one destination: copy/download it only once
-        unique_tasks = {}
-        for task in download_tasks:
-            unique_tasks.setdefault(task['args'][1], task)
-        download_tasks = list(unique_tasks.values())
-
-        completed_files = 0
-        if download_tasks:
-            logger.info(f"Starting concurrent download of {len(download_tasks)} files...")
-            with ThreadPoolExecutor(max_workers=16) as executor:
-                future_to_task = {
-                    executor.submit(task['func'], *task['args']): task
-                    for task in download_tasks
-                }
-                for future in as_completed(future_to_task):
-                    task = future_to_task[future]
-                    try:
-                        future.result()
-                    except Exception as e:
-                        logger.error(f"Task {task_id}: Download {task['type']} file failed: {str(e)}", exc_info=True)
-                        missing.append(f"{task['material'].material_name} ({e})")
-                        continue
-                    completed_files += 1
-                    total = len(download_tasks)
-                    update_task_fields(task_id, completed_files=completed_files, total_files=total,
-                                       progress=10 + int((completed_files / total) * 60),
-                                       message=f"Downloaded {completed_files}/{total} files")
-        for task in download_tasks:
-            if not os.path.isfile(task['args'][1]):
-                name = task['material'].material_name
-                if not any(m.startswith(name) for m in missing):
-                    missing.append(f"{name} (not copied)")
-        if missing:
-            raise SaveDraftError("Draft not saved, some media could not be copied: " + "; ".join(missing))
+        # Assets are copied into the staging folder; replace_path is where they will be once it
+        # is renamed to draft_dir.
+        copy_assets(script, task_id, output_base_dir, final_name, stage_dir)
 
         update_task_fields(task_id, message="Saving draft information", progress=70)
         written_files = write_profile_content(draft_profile, stage_dir, script.dumps(draft_profile))

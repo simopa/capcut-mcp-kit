@@ -49,6 +49,16 @@ Funzionano anche attraverso i tagli e tornano sempre all'inquadratura di partenz
 pause, `punch_in_zoom: 1.12` alterna un'inquadratura più stretta su un pezzo sì e uno no, per
 nascondere i salti.
 
+## Progetti esistenti
+
+Si può aggiungere a un progetto fatto in CapCut: chiedi per esempio "apri il progetto *Intervista*
+e aggiungi un titolo nei primi 3 secondi". `capcut_list_projects` mostra i progetti,
+`capcut_open_project` lo apre. Le aggiunte vanno su tracce nuove sopra quelle esistenti: le clip
+che ci sono già non vengono mai modificate, spostate o tolte. Al salvataggio il kit riscrive la
+timeline originale identica più le aggiunte, in tutte le copie che CapCut tiene, dopo aver fatto un
+backup dell'intera cartella del progetto in `~/Movies/CapCut MCP Backups`. **Chiudi CapCut prima di
+salvare**; se nel frattempo hai modificato il progetto in CapCut, va riaperto.
+
 ## Cosa sapere
 
 - L'assistente non vede né sente il video: conosce durata e dimensioni, quindi taglia per tempi.

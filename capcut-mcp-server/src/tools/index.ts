@@ -16,6 +16,8 @@ import {
   SaveDraftSchema,
   GetDurationSchema,
   ListTypesSchema,
+  ListProjectsSchema,
+  OpenProjectSchema,
   LIST_TYPE_ENDPOINTS,
   type CreateDraftInput,
   type AddVideoInput,
@@ -28,7 +30,9 @@ import {
   type AddStickerInput,
   type SaveDraftInput,
   type GetDurationInput,
-  type ListTypesInput
+  type ListTypesInput,
+  type ListProjectsInput,
+  type OpenProjectInput
 } from '../schemas/index.js';
 
 // Utility function to format responses
@@ -60,7 +64,9 @@ function formatResponse(data: any, format: ResponseFormat): {
       if (data.backups?.length) {
         markdown += `The previous version was moved to:\n${data.backups.map((b: string) => `\`${b}\``).join('\n')}\n\n`;
       }
-      markdown += `The project is already in CapCut's projects folder: restart CapCut to see it in the list.\n`;
+      markdown += data.added_tracks !== undefined
+        ? `Added ${data.added_tracks} track(s) to the existing project; open it in CapCut to see them.\n`
+        : `The project is already in CapCut's projects folder: restart CapCut to see it in the list.\n`;
     } else {
       markdown += `## Operation Successful\n\n`;
       markdown += JSON.stringify(data, null, 2);
@@ -562,6 +568,9 @@ This tool finalizes the draft and writes it directly into the local CapCut draft
 (macOS: ~/Movies/CapCut/User Data/Projects/com.lveditor.draft), copying local media alongside it.
 CapCut only rescans its projects list on launch, so the user must restart CapCut to see the new project.
 
+For a draft from capcut_open_project, leave project_name out: the additions are written into that
+project, existing clips untouched.
+
 Saving again under the same project_name replaces the project this draft saved before; the old folder is
 moved to ~/Movies/CapCut MCP Backups, never deleted. Replacing a project is refused while CapCut is open
 (quit it first), and a project not saved from this draft is replaced only with overwrite=true.
@@ -695,6 +704,87 @@ Args:
             type: "text" as const,
             text: `## ${params.category} (${names.length})\n\n${names.join(', ') || '_no matches_'}`
           }]
+        };
+      } catch (error) {
+        return handleError(error);
+      }
+    }
+  );
+
+  // Tool 13: List existing CapCut projects
+  server.registerTool(
+    'capcut_list_projects',
+    {
+      title: 'List CapCut Projects',
+      description: `List the projects in CapCut's projects folder, most recently modified first.
+
+Args:
+  - search (string): Optional case-insensitive substring filter on the name
+  - response_format ('markdown' | 'json'): Output format`,
+      inputSchema: ListProjectsSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    async (params: ListProjectsInput) => {
+      try {
+        const response = await apiClient.listProjects();
+        if (!response.success || !response.result) {
+          throw new Error(response.error || 'Failed to list projects');
+        }
+        const needle = params.search?.toLowerCase();
+        const projects = (response.result.projects || [])
+          .filter((p) => p.is_capcut_project && (!needle || p.name.toLowerCase().includes(needle)))
+          .map((p) => ({ name: p.name, modified: p.modified_time }));
+        if (params.response_format === ResponseFormat.JSON) {
+          return { content: [{ type: "text" as const, text: JSON.stringify(projects) }], structuredContent: { projects } };
+        }
+        const lines = projects.map((p) => `- ${p.name} (modified ${p.modified.slice(0, 16).replace('T', ' ')})`);
+        return { content: [{ type: "text" as const, text: `## CapCut projects (${projects.length})\n\n${lines.join('\n') || '_none_'}` }] };
+      } catch (error) {
+        return handleError(error);
+      }
+    }
+  );
+
+  // Tool 14: Open an existing project to add to it
+  server.registerTool(
+    'capcut_open_project',
+    {
+      title: 'Open Existing CapCut Project',
+      description: `Open a project made in CapCut (or saved earlier) to add to it, and get a draft_id for it.
+
+Use the draft_id with the other capcut_add_* tools, then capcut_save_draft (without project_name).
+Additions go on new tracks above the existing ones; clips already in the project are never changed,
+moved or removed, and the existing tracks cannot be edited through this draft. The result lists the
+existing tracks with their end times, to place new items after or over them.
+
+Saving refuses if CapCut is open (quit it first) or if the project was changed in CapCut after it was
+opened (open it again). Before writing, the whole project folder is copied to ~/Movies/CapCut MCP Backups.
+
+Args:
+  - project_name (string): Exact project name (see capcut_list_projects)
+  - response_format ('markdown' | 'json'): Output format`,
+      inputSchema: OpenProjectSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+    },
+    async (params: OpenProjectInput) => {
+      try {
+        const response = await apiClient.openProject(params.project_name);
+        if (!response.success || !response.result) {
+          throw new Error(response.error || 'Failed to open project');
+        }
+        const p = response.result;
+        if (params.response_format === ResponseFormat.JSON) {
+          return { content: [{ type: "text" as const, text: JSON.stringify(p, null, 2) }], structuredContent: p };
+        }
+        const tracks = (p.tracks as Array<{ type: string; name: string; clips: number; end: number }>)
+          .map((t) => `- ${t.type}${t.name ? ` "${t.name}"` : ''}: ${t.clips} clip(s), ends at ${t.end}s`);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `## Project opened: ${p.project_name}\n\n- **Draft ID**: \`${p.draft_id}\`\n- **Size**: ${p.width}x${p.height}, ${p.fps} fps\n` +
+              `- **Duration**: ${p.duration}s\n\n### Existing tracks\n${tracks.join('\n') || '_none_'}\n\n${p.note}`
+          }],
+          structuredContent: p
         };
       } catch (error) {
         return handleError(error);

@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; routes that change a draft are transactional (draft_store); create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; routes that change a draft are transactional (draft_store); /open_project; list_projects flags real projects; create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted.
 # See NOTICE at the repository root.
 import requests
 import os
@@ -31,6 +31,7 @@ from add_image_impl import add_image_impl
 from add_video_keyframe_impl import add_video_keyframe_impl
 from save_draft_impl import save_draft_impl, query_task_status, query_script_impl
 import media_analysis
+import existing_project
 import camera_moves
 from add_effect_impl import add_effect_impl
 from add_sticker_impl import add_sticker_impl
@@ -903,12 +904,21 @@ def list_projects():
                     "path": item_path,
                     "is_locked": is_locked,
                     "has_draft_content": os.path.exists(content_path),
+                    "is_capcut_project": os.path.exists(content_path) or os.path.exists(os.path.join(item_path, "draft_info.json")),
                     "modified_time": datetime.fromtimestamp(mtime).isoformat()
                 })
         projects.sort(key=lambda x: x["modified_time"], reverse=True)
         return jsonify({"success": True, "output": {"count": len(projects), "projects": projects}})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
+
+@app.route('/open_project', methods=['POST'])
+def open_project():
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify({"success": True, "output": existing_project.open_project(data.get('project_name') or ''), "error": ""})
+    except Exception as e:
+        return jsonify({"success": False, "output": "", "error": str(e)})
 
 @app.route('/read_project', methods=['POST'])
 def read_project():

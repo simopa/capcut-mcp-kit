@@ -337,6 +337,21 @@ export const ListTypesSchema = z.object({
   response_format: ResponseFormatSchema
 }).strict();
 
+// Existing projects
+export const ListProjectsSchema = z.object({
+  search: z.string()
+    .optional()
+    .describe('Case-insensitive substring filter on the project name'),
+  response_format: ResponseFormatSchema
+}).strict();
+
+export const OpenProjectSchema = z.object({
+  project_name: z.string()
+    .min(1, 'Project name is required')
+    .describe('Exact name of a project in CapCut (see capcut_list_projects)'),
+  response_format: ResponseFormatSchema
+}).strict();
+
 // Sticker schema
 export const AddStickerSchema = z.object({
   draft_id: z.string()
@@ -407,3 +422,5 @@ export type AddStickerInput = z.infer<typeof AddStickerSchema>;
 export type SaveDraftInput = z.infer<typeof SaveDraftSchema>;
 export type GetDurationInput = z.infer<typeof GetDurationSchema>;
 export type ListTypesInput = z.infer<typeof ListTypesSchema>;
+export type ListProjectsInput = z.infer<typeof ListProjectsSchema>;
+export type OpenProjectInput = z.infer<typeof OpenProjectSchema>;
