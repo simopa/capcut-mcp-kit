@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; routes that change a draft are transactional (draft_store); /open_project; list_projects flags real projects; create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted; token required (kit_auth) except GET /health.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; routes that change a draft are transactional (draft_store); /open_project; list_projects flags real projects; /add_background_music, /timeline; auto_track; create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted; token required (kit_auth) except GET /health.
 # See NOTICE at the repository root.
 import requests
 import os
@@ -32,6 +32,7 @@ from add_video_keyframe_impl import add_video_keyframe_impl
 from save_draft_impl import save_draft_impl, query_task_status, query_script_impl
 import media_analysis
 import existing_project
+import music
 import camera_moves
 from add_effect_impl import add_effect_impl
 from add_sticker_impl import add_sticker_impl
@@ -1728,6 +1729,22 @@ def add_camera_move():
         d["draft_id"], d["move"], float(d["start"]), float(d["end"]),
         intensity=float(d.get("intensity", 1.0)), track_name=d.get("track_name") or "video_main",
         flash=bool(d.get("flash", False)), mode=d.get("mode") or "compose", easing=d.get("easing") or "smooth"))
+
+
+@app.route('/add_background_music', methods=['POST'])
+@transactional
+def add_background_music():
+    return _media_route(lambda d: music.add_background_music(
+        d["draft_id"], d["audio_url"], volume=float(d.get("volume", 0.25)),
+        fade_in=float(d.get("fade_in", 1.0)), fade_out=float(d.get("fade_out", 2.0)),
+        start=float(d.get("start", 0)), end=float(d["end"]) if d.get("end") is not None else None,
+        duck_under=d.get("duck_under"), duck_level=float(d.get("duck_level", 0.35)),
+        track_name=d.get("track_name") or "music"))
+
+
+@app.route('/timeline', methods=['POST'])
+def timeline():
+    return _media_route(lambda d: music.timeline(d.get("draft_id")))
 
 
 if __name__ == '__main__':

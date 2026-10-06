@@ -59,6 +59,10 @@ vectcut-api/
   - draft_profiles.py: the canvas ratio is adjusted only when the content has a
     canvas_config (one was invented otherwise).
   - requirements.lock.txt, requirements-whisper-mlx.lock.txt (new): exact versions.
+  - placement.py (new), pyJianYingDraft/script_file.py, draft_store.py: an item that
+    would overlap on its track goes to the first free track like it (auto_track).
+  - music.py (new), capcut_server.py: /add_background_music (loop, fades, ducking under
+    the voice from its transcript) and /timeline.
   - kit_auth.py (new), capcut_server.py: GET /health identifies the backend; every
     other request needs the shared token. settings/local.py: CAPCUT_PORT override.
   - downloader.py: remote downloads are http(s) only, size-capped, never left
@@ -68,7 +72,7 @@ vectcut-api/
   - tests/test_save_draft_local_paths.py: never writes into the real CapCut folder;
     tests/test_save_draft_safety.py, test_media_analysis.py, test_no_false_success.py,
     test_draft_store.py, test_existing_project.py, test_camera_moves.py,
-    test_downloader.py (new).
+    test_downloader.py, test_placement_and_music.py (new).
   - pyJianYingDraft/script_file.py: import_srt crashed when no font was given.
   - The upstream mcp-server/ folder (a copy of the project below) is not included.
 
@@ -92,6 +96,7 @@ capcut-mcp-server/
     capcut_add_video_without_pauses (with alternating punch-in), capcut_add_auto_subtitles,
     capcut_add_camera_move.
   - capcut_list_projects and capcut_open_project (add to an existing project).
+  - capcut_add_background_music, capcut_get_timeline; auto_track on the add tools.
   - services/backend.ts: the autostart checks the backend's identity and API version,
     takes a start lock shared by all clients, re-checks after a lost connection, and
     passes the port; services/auth.ts sends the shared token. Node tests in test/.

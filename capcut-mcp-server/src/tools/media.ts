@@ -306,6 +306,77 @@ Args:
   );
 
   server.registerTool(
+    'capcut_add_background_music',
+    {
+      title: 'Add Background Music',
+      description: `Lay a music file under the whole edit (or a range), looping it if it is shorter, with a
+fade-in and fade-out, and optionally ducking under the voice: the music dips while someone speaks
+(volume keyframes, editable in CapCut). Ducking needs the voice video on the timeline and its
+transcript (capcut_transcribe). Add it after the edit is assembled: by default it runs to the end.
+
+Args:
+  - draft_id (string), audio_url (string): local music file
+  - volume (number): Music level, 1 = original (default 0.25)
+  - fade_in / fade_out (number): Seconds (default 1 / 2)
+  - start / end (number): Range on the timeline (default: 0 to the end of the edit)
+  - duck_under (string): Path of the voice video already on the timeline
+  - duck_level (number): Music level while speaking, as a fraction of volume (default 0.35)
+  - track_name (string): Audio track (default "music")`,
+      inputSchema: z.object({
+        draft_id: z.string().min(1),
+        audio_url: LocalPath,
+        volume: z.number().positive().max(2).default(0.25),
+        fade_in: z.number().min(0).default(1),
+        fade_out: z.number().min(0).default(2),
+        start: z.number().min(0).default(0),
+        end: z.number().positive().optional(),
+        duck_under: LocalPath.optional(),
+        duck_level: z.number().min(0).max(1).default(0.35),
+        track_name: z.string().min(1).optional()
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+    },
+    async (params) => {
+      try {
+        const r = await apiClient.request<any>('/add_background_music', 'POST', params);
+        if (!r.success) throw new Error(r.error);
+        const p = r.result;
+        return text(`Added music on track "${p.track}" from ${p.start}s to ${p.end}s (${p.pieces} piece(s))` +
+          (params.duck_under ? `, ducked under ${p.ducked_spans} speech span(s).` : '.'));
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    'capcut_get_timeline',
+    {
+      title: 'Get Timeline',
+      description: `List the draft's tracks with their clip count and where each one ends (and, for a draft
+from capcut_open_project, the existing project's tracks), to place new items after or over them.`,
+      inputSchema: z.object({ draft_id: z.string().min(1) }).strict(),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    async (params) => {
+      try {
+        const r = await apiClient.request<any>('/timeline', 'POST', params);
+        if (!r.success) throw new Error(r.error);
+        const t = r.result;
+        const line = (x: any) => `- ${x.type} "${x.name}": ${x.clips} clip(s), ends at ${x.end}s`;
+        let out = `## Timeline (${t.duration}s)\n${t.tracks.map(line).join('\n') || '_empty_'}`;
+        if (t.existing_project) {
+          out += `\n\n### Existing project "${t.existing_project.name}" (${t.existing_project.duration}s)\n` +
+            t.existing_project.tracks.map(line).join('\n');
+        }
+        return { content: [{ type: 'text' as const, text: out }], structuredContent: t };
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+
+  server.registerTool(
     'capcut_add_camera_move',
     {
       title: 'Add Camera Move',

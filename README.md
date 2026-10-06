@@ -95,6 +95,8 @@ starts it again if it stops. Its log is `vectcut-api/server.log`. To start it by
 | `capcut_add_sticker` | Sticker by CapCut resource ID (see limitations) |
 | `capcut_list_types` | Exact CapCut names: transitions, animations, text animations, effects, masks, audio effects, fonts |
 | `capcut_save_draft` | Save into CapCut's projects folder under `project_name` |
+| `capcut_add_background_music` | Music under the whole edit: loops to fit, fades, ducks under the voice while it speaks |
+| `capcut_get_timeline` | Tracks of a draft with where each one ends |
 | `capcut_list_projects` | Projects in CapCut's folder, most recent first |
 | `capcut_open_project` | Open a project made in CapCut to add to it (new tracks only; existing clips untouched) |
 | `capcut_get_duration` | Duration and size of a media file |
@@ -111,8 +113,9 @@ Conventions:
 - **Names** of transitions, animations and effects must be exact CapCut names: look them up with
   `capcut_list_types` (e.g. `category: "transition", search: "dissolve"`).
 - **Transitions** go on the *earlier* clip: they lead from that clip into the next one.
-- **Tracks:** items on one track cannot overlap in time. Give a second title, a picture-in-picture
-  clip or a second audio a different `track_name`.
+- **Tracks:** items on one track cannot overlap in time. An item that would overlap goes by itself to
+  the first free track like it (`text_main_2`, `video_main_2`… stacked just above) and the reply says
+  so; `auto_track: false` makes an overlap an error instead.
 - **Camera moves** start and end on the clip's own framing, so they only affect their range; they
   stack on keyframes already there (`mode: "replace"` redoes a range, `"refuse"` errors instead).
   `easing` picks smooth, linear, snappy or dramatic motion; very short ranges squeeze the move. With

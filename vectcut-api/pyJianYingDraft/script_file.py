@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: import_srt no longer crashes when no font is given.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: import_srt no longer crashes when no font is given; add_segment can move an overlapping item to a free track (placement.py).
 # See NOTICE at the repository root.
 import os
 import json
@@ -354,6 +354,12 @@ class Script_file:
         """
         tracks = self._get_track_and_imported_track(type(segment), track_name)
         target = tracks[0] 
+
+        # capcut-mcp-kit: with auto_track on, an overlapping item goes to the first free track like it
+        import placement
+        if placement.AUTO_TRACK.get() and target in self.tracks.values() \
+                and any(seg.overlaps(segment) for seg in target.segments):
+            target = placement.free_track(self, target, segment)
 
         # 加入轨道并更新时长
         target.add_segment(segment)

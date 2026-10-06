@@ -22,11 +22,15 @@ const capcutName = (category: string) => z.string()
   .optional()
   .describe(`Exact CapCut name from capcut_list_types category="${category}"`);
 
-// Items on the same track cannot overlap in time; use another track to layer them
+// Items on the same track cannot overlap in time: by default an overlapping item goes to the first
+// free track like it ("text_main_2"...), and the reply says so
 const trackName = (defaultTrack: string) => z.string()
   .min(1)
   .optional()
-  .describe(`Track to place this on (default "${defaultTrack}"). Items on one track cannot overlap in time: use a new name (e.g. "${defaultTrack}_2") to layer simultaneous items`);
+  .describe(`Track to place this on (default "${defaultTrack}"). If it is busy at that time the item goes to the first free track like it ("${defaultTrack}_2"...) unless auto_track is false`);
+const autoTrack = z.boolean()
+  .default(true)
+  .describe('Move an item that would overlap another one on its track to a free track (default true); false makes an overlap an error');
 
 const animationDuration = z.number()
   .positive()
@@ -86,6 +90,7 @@ export const AddVideoSchema = z.object({
     .default(1.0)
     .describe('Playback speed multiplier'),
   track_name: trackName('video_main'),
+  auto_track: autoTrack,
   response_format: ResponseFormatSchema
 }).strict();
 
@@ -119,6 +124,7 @@ export const AddAudioSchema = z.object({
     .default(0)
     .describe('Fade out duration in seconds'),
   track_name: trackName('audio_main'),
+  auto_track: autoTrack,
   response_format: ResponseFormatSchema
 }).strict();
 
@@ -180,6 +186,7 @@ export const AddTextSchema = z.object({
   outro_animation: capcutName('text_outro'),
   outro_duration: animationDuration,
   track_name: trackName('text_main'),
+  auto_track: autoTrack,
   response_format: ResponseFormatSchema
 }).strict();
 
@@ -227,6 +234,7 @@ export const AddImageSchema = z.object({
     .default(0.5)
     .describe('Transition duration in seconds'),
   track_name: trackName('image_main'),
+  auto_track: autoTrack,
   response_format: ResponseFormatSchema
 }).strict();
 

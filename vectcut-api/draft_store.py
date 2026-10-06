@@ -9,6 +9,7 @@ loaded back on first use. A change runs under the draft's lock on a snapshot: if
 draft goes back to exactly what it was.
 """
 
+import json
 import os
 import pickle
 import sqlite3
@@ -109,6 +110,17 @@ def _succeeded(response) -> bool:
     return isinstance(body, dict) and body.get("success") is True
 
 
+def _report_moves(response, moved):
+    """Add {"moved_to_free_track": [...]} to a successful reply when items changed track."""
+    if not moved:
+        return
+    resp = response[0] if isinstance(response, tuple) else response
+    body = resp.get_json(silent=True)
+    if isinstance(body, dict) and isinstance(body.get("output"), dict):
+        body["output"]["moved_to_free_track"] = moved
+        resp.set_data(json.dumps(body))
+
+
 def transactional(view):
     """Wrap a Flask route that changes the draft named by its JSON "draft_id": run it under the
     draft's lock; keep and persist the change only if the route reports success, otherwise put
@@ -121,19 +133,26 @@ def transactional(view):
         if not draft_id or not isinstance(draft_id, str):
             return jsonify({"success": False, "output": "",
                             "error": "draft_id is required: create a draft with capcut_create_draft first"})
+        import placement
         with draft_lock(draft_id):
             try:
                 snapshot = pickle.dumps(get_draft(draft_id), protocol=pickle.HIGHEST_PROTOCOL)
             except DraftNotFound as e:
                 return jsonify({"success": False, "output": "", "error": str(e)})
+            auto = placement.AUTO_TRACK.set(data.get("auto_track", True) is not False)
+            moved = placement.MOVED.set([])
             try:
                 response = view(*args, **kwargs)
                 if _succeeded(response):
                     persist(draft_id, DRAFT_CACHE[draft_id])
+                    _report_moves(response, placement.MOVED.get())
                     return response
             except Exception as e:
                 update_cache(draft_id, pickle.loads(snapshot))
                 return jsonify({"success": False, "output": "", "error": f"{e} (the draft was left unchanged)"})
+            finally:
+                placement.AUTO_TRACK.reset(auto)
+                placement.MOVED.reset(moved)
             update_cache(draft_id, pickle.loads(snapshot))
             return response
     return wrapper

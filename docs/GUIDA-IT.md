@@ -71,8 +71,11 @@ salvare**; se nel frattempo hai modificato il progetto in CapCut, va riaperto.
 - Transizioni, animazioni ed effetti hanno nomi esatti di CapCut: l'assistente li cerca con
   `capcut_list_types`.
 - La transizione si mette sulla clip **precedente** (la collega alla successiva).
-- Elementi sulla stessa traccia non possono sovrapporsi: per due testi insieme o un video sopra
-  l'altro si usa un'altra traccia (`track_name`).
+- Elementi sulla stessa traccia non possono sovrapporsi: un elemento che si sovrapporrebbe va da solo
+  sulla prima traccia libera dello stesso tipo (`text_main_2`, `video_main_2`…, sopra la prima).
+- Musica di sottofondo: `capcut_add_background_music` la stende sotto tutto il montaggio (ripetendola
+  se è più corta), con dissolvenze, e la abbassa mentre parli se le indichi il video della voce
+  (serve la trascrizione).
 - Correzione colore: keyframe di saturazione, contrasto e luminosità; restano modificabili in CapCut.
 
 ## Limiti
