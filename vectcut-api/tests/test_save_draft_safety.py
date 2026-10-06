@@ -192,19 +192,38 @@ def test_foreign_host_and_origin_are_refused(client):
     assert client.get("/camera_moves", headers={"Host": "evil.example:9001"}).status_code == 403
     assert client.get("/camera_moves", headers={"Host": "127.0.0.1:9001",
                                                 "Origin": "https://evil.example"}).status_code == 403
-    assert client.get("/camera_moves", headers={"Host": "localhost:9001"}).status_code == 200
-    assert client.get("/camera_moves", headers={"Host": "[::1]:9001"}).status_code == 200
+    assert client.get("/camera_moves", headers={"Host": "localhost:9001", "X-CapCut-Kit-Token": "test-token"}).status_code == 200
+    assert client.get("/camera_moves", headers={"Host": "[::1]:9001", "X-CapCut-Kit-Token": "test-token"}).status_code == 200
 
 
 def test_preview_routes_are_off_by_default(client):
     response = client.get("/preview/media", query_string={"path": __file__},
-                          headers={"Host": "127.0.0.1:9001"})
+                          headers={"Host": "127.0.0.1:9001", "X-CapCut-Kit-Token": "test-token"})
     assert response.status_code == 404
 
 
 def test_save_route_reports_failure(env, client):
     response = client.post("/save_draft", json={"draft_id": "route-missing", "project_name": ".."},
-                           headers={"Host": "127.0.0.1:9001"})
+                           headers={"Host": "127.0.0.1:9001", "X-CapCut-Kit-Token": "test-token"})
     body = response.get_json()
     assert body["success"] is False
     assert body["error"]
+
+
+def test_requests_without_the_token_are_refused(client):
+    assert client.get("/camera_moves", headers={"Host": "127.0.0.1:9001"}).status_code == 401
+    assert client.get("/camera_moves", headers={"Host": "127.0.0.1:9001", "X-CapCut-Kit-Token": "wrong"}).status_code == 401
+
+
+def test_health_needs_no_token_and_identifies_the_kit(client):
+    body = client.get("/health", headers={"Host": "127.0.0.1:9001"}).get_json()
+    assert body["output"]["service"] == "capcut-mcp-kit"
+    assert body["output"]["api"] == 1
+
+
+def test_token_file_is_private(tmp_path, monkeypatch):
+    import os, stat, kit_auth
+    monkeypatch.delenv("CAPCUT_MCP_TOKEN")
+    first = kit_auth.token()
+    assert first and kit_auth.token() == first
+    assert stat.S_IMODE(os.stat(kit_auth.token_path()).st_mode) == 0o600

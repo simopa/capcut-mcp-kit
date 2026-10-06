@@ -3,7 +3,8 @@
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from 'axios';
 import { API_BASE_URL } from '../constants.js';
 import type { ApiResponse } from '../types.js';
-import { ensureBackend } from './backend.js';
+import { ensureBackend, forgetBackend } from './backend.js';
+import { readToken, TOKEN_HEADER } from './auth.js';
 
 export class CapCutApiClient {
   private client: AxiosInstance;
@@ -17,6 +18,13 @@ export class CapCutApiClient {
       },
     });
 
+    // Every request carries the backend's token (read each time: the backend creates it on first start)
+    this.client.interceptors.request.use((config) => {
+      const token = readToken();
+      if (token) config.headers.set(TOKEN_HEADER, token);
+      return config;
+    });
+
     // Add response interceptor for error handling
     this.client.interceptors.response.use(
       (response) => response,
@@ -26,7 +34,9 @@ export class CapCutApiClient {
           const status = error.response.status;
           const data = error.response.data as any;
           
-          if (status === 404) {
+          if (status === 401) {
+            throw new Error(`The backend refused the request: ${data?.error || 'missing or wrong token'}`);
+          } else if (status === 404) {
             throw new Error(`Resource not found: ${error.config?.url}`);
           } else if (status === 400) {
             throw new Error(`Bad request: ${data?.error || error.message}`);
@@ -38,7 +48,8 @@ export class CapCutApiClient {
           
           throw new Error(data?.error || `API error (${status})`);
         } else if (error.request) {
-          // Request made but no response
+          // Request made but no response: check (and restart) the backend on the next call
+          forgetBackend();
           throw new Error('CapCut API server is not responding. Please ensure the server is running.');
         } else {
           // Error setting up request

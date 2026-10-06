@@ -55,11 +55,16 @@ vectcut-api/
     flags real projects.
   - media_analysis.py: subtitles are placed from the clips on the timeline instead
     of an in-memory list.
+  - kit_auth.py (new), capcut_server.py: GET /health identifies the backend; every
+    other request needs the shared token. settings/local.py: CAPCUT_PORT override.
+  - downloader.py: remote downloads are http(s) only, size-capped, never left
+    partial, and a failure is an error.
   - capcut_server.py: the web preview routes are off unless CAPCUT_ENABLE_PREVIEW=1;
     requests with a non-loopback Host or Origin are refused.
   - tests/test_save_draft_local_paths.py: never writes into the real CapCut folder;
     tests/test_save_draft_safety.py, test_media_analysis.py, test_no_false_success.py,
-    test_draft_store.py, test_existing_project.py, test_camera_moves.py (new).
+    test_draft_store.py, test_existing_project.py, test_camera_moves.py,
+    test_downloader.py (new).
   - pyJianYingDraft/script_file.py: import_srt crashed when no font was given.
   - The upstream mcp-server/ folder (a copy of the project below) is not included.
 
@@ -83,6 +88,9 @@ capcut-mcp-server/
     capcut_add_video_without_pauses (with alternating punch-in), capcut_add_auto_subtitles,
     capcut_add_camera_move.
   - capcut_list_projects and capcut_open_project (add to an existing project).
+  - services/backend.ts: the autostart checks the backend's identity and API version,
+    takes a start lock shared by all clients, re-checks after a lost connection, and
+    passes the port; services/auth.ts sends the shared token. Node tests in test/.
   - Errors are returned with isError; capcut_save_draft takes overwrite and reports
     where replaced projects were moved.
 ------------------------------------------------------------------------

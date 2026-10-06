@@ -10,7 +10,7 @@ import pytest
 import draft_store
 from draft_cache import DRAFT_CACHE
 
-HOST = {"Host": "127.0.0.1:9001"}
+HOST = {"Host": "127.0.0.1:9001", "X-CapCut-Kit-Token": "test-token"}
 
 
 @pytest.fixture

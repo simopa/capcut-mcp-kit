@@ -1,6 +1,7 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: local files are cloned copy-on-write on macOS instead of fully copied.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: local files are cloned copy-on-write on macOS instead of fully copied; remote downloads are http(s) only, size-capped, never left partial, and fail with an error.
 # See NOTICE at the repository root.
 import sys
+import urllib.parse
 import os
 import subprocess
 import time
@@ -143,6 +144,10 @@ def download_file(url:str, local_filename, max_retries=3, timeout=180):
         return True
     
     # 原有的下载逻辑
+    # capcut-mcp-kit: only http(s) URLs, a size cap, and never a partial file left behind
+    if urllib.parse.urlparse(str(url)).scheme not in ("http", "https"):
+        raise ValueError(f"Not a local file nor an http(s) URL: {url}")
+    max_bytes = int(os.environ.get("CAPCUT_MAX_DOWNLOAD_BYTES", 20 * 1024 ** 3))
     # Extract directory part
     directory = os.path.dirname(local_filename)
 
@@ -172,16 +177,23 @@ def download_file(url:str, local_filename, max_retries=3, timeout=180):
 
             with requests.get(url, stream=True, timeout=timeout, headers=headers) as response:
                 response.raise_for_status()
+                if urllib.parse.urlparse(response.url).scheme not in ("http", "https"):
+                    raise ValueError(f"Redirected to a non-http(s) URL: {response.url}")
+                if int(response.headers.get('content-length', 0) or 0) > max_bytes:
+                    raise ValueError(f"File larger than CAPCUT_MAX_DOWNLOAD_BYTES ({max_bytes} bytes)")
+                partial = local_filename + ".part"
                 
                 total_size = int(response.headers.get('content-length', 0))
                 block_size = 1024
                 
-                with open(local_filename, 'wb') as file:
+                with open(partial, 'wb') as file:
                     bytes_written = 0
                     for chunk in response.iter_content(block_size):
                         if chunk:
                             file.write(chunk)
                             bytes_written += len(chunk)
+                            if bytes_written > max_bytes:
+                                raise ValueError(f"File larger than CAPCUT_MAX_DOWNLOAD_BYTES ({max_bytes} bytes)")
                             
                             if total_size > 0:
                                 progress = bytes_written / total_size * 100
@@ -193,10 +205,15 @@ def download_file(url:str, local_filename, max_retries=3, timeout=180):
                 if total_size > 0:
                     # print() # Original newline
                     pass
+                os.replace(partial, local_filename)
                 print(f"Download completed in {time.time()-start_time:.2f} seconds")
                 print(f"File saved as: {os.path.abspath(local_filename)}")
                 return True
                 
+        except ValueError:
+            if os.path.exists(local_filename + ".part"):
+                os.remove(local_filename + ".part")
+            raise
         except Timeout:
             print(f"Download timed out after {timeout} seconds")
         except RequestException as e:
@@ -204,8 +221,10 @@ def download_file(url:str, local_filename, max_retries=3, timeout=180):
         except Exception as e:
             print(f"Unexpected error during download: {e}")
         
+        if os.path.exists(local_filename + ".part"):
+            os.remove(local_filename + ".part")
         retries += 1
     
     print(f"Download failed after {max_retries} attempts for URL: {url}")
-    return False
+    raise RuntimeError(f"Download failed after {max_retries} attempts: {url}")
 

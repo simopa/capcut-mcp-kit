@@ -66,8 +66,9 @@ cd capcut-mcp-kit
 2. Restart CapCut and open the project.
 
 The MCP server starts the VectCutAPI backend by itself on the first tool call and leaves it running,
-so several clients (say, Claude Code and Codex) can share it and drafts in progress survive a closed
-session. Its log is `vectcut-api/server.log`. To start it by hand instead, run `./start-server.sh`
+so several clients (say, Claude Code and Codex) can share it; it checks that the program on the port
+is really the kit's backend, starts it only once even when several clients ask at the same time, and
+starts it again if it stops. Its log is `vectcut-api/server.log`. To start it by hand instead, run `./start-server.sh`
 (and set `CAPCUT_AUTOSTART=0` in the MCP server's environment to disable autostart).
 
 ## Tools
@@ -130,8 +131,12 @@ Conventions:
 - **Drafts in progress** are kept in `~/Library/Application Support/capcut-mcp-kit/drafts.sqlite3`
   (set `CAPCUT_MCP_STATE_DIR` to move it), so they survive a backend restart. A change that fails
   leaves the draft as it was, and an unknown draft ID is an error rather than a new empty project.
-- The backend listens on 127.0.0.1 only and refuses requests from web pages. VectCutAPI's web
-  preview is off; `CAPCUT_ENABLE_PREVIEW=1` turns it back on (it serves local files by path).
+- The backend listens on 127.0.0.1 only, refuses requests from web pages, and requires the header
+  `X-CapCut-Kit-Token` with the token in `~/Library/Application Support/capcut-mcp-kit/token`
+  (created on first start, readable only by you; the MCP server sends it). Only `GET /health` is
+  open. VectCutAPI's web preview is off; `CAPCUT_ENABLE_PREVIEW=1` turns it back on (it serves local
+  files by path). Remote media downloads are http(s) only and capped at 20 GB
+  (`CAPCUT_MAX_DOWNLOAD_BYTES`).
 - The draft format is CapCut's `capcut_legacy` profile. A future CapCut version could change it.
 
 ## Other MCP clients

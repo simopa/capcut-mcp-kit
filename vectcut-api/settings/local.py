@@ -1,3 +1,5 @@
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: CAPCUT_PORT overrides the configured port.
+# See NOTICE at the repository root.
 """
 本地配置模块，用于从本地配置文件中加载配置
 """
@@ -83,3 +85,7 @@ if os.path.exists(CONFIG_FILE_PATH):
     except Exception as e:
         # 配置文件加载失败，使用默认配置
         pass
+
+# capcut-mcp-kit: the MCP server's autostart passes the port it will connect to
+if os.environ.get("CAPCUT_PORT"):
+    PORT = int(os.environ["CAPCUT_PORT"])

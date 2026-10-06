@@ -20,3 +20,4 @@ def isolate_from_capcut(monkeypatch, tmp_path):
     monkeypatch.setattr(save_draft_impl, "capcut_is_running", lambda: False)
     monkeypatch.setenv("CAPCUT_MCP_BACKUP_DIR", str(tmp_path / "backups"))
     monkeypatch.setenv("CAPCUT_MCP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("CAPCUT_MCP_TOKEN", "test-token")

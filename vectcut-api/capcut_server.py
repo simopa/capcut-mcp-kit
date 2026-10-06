@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; routes that change a draft are transactional (draft_store); /open_project; list_projects flags real projects; create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; routes that change a draft are transactional (draft_store); /open_project; list_projects flags real projects; create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted; token required (kit_auth) except GET /health.
 # See NOTICE at the repository root.
 import requests
 import os
@@ -43,6 +43,7 @@ from pyJianYingDraft.text_segment import TextStyleRange, Text_style, Text_border
 from settings.local import IS_CAPCUT_ENV, DRAFT_DOMAIN, PREVIEW_ROUTER, PORT
 from web_preview import preview_bp, broadcast_draft_update
 from draft_store import transactional
+import kit_auth
 from web_preview import reload_capcut_desktop  # falls back to a stub off Windows
 
 app = Flask(__name__)
@@ -65,6 +66,18 @@ def only_loopback_callers():
     origin = request.headers.get("Origin")
     if origin and _hostname(origin.split("://", 1)[-1]).lower() not in LOOPBACK_HOSTS:
         return jsonify({"success": False, "error": "Forbidden origin"}), 403
+    # Only the MCP server (or whoever can read the token file) may use the backend
+    if request.path != "/health" and not kit_auth.authorized(request.headers.get(kit_auth.TOKEN_HEADER)):
+        return jsonify({"success": False, "error": f"Missing or wrong {kit_auth.TOKEN_HEADER} header "
+                                                   f"(token in {kit_auth.token_path()})"}), 401
+
+
+@app.route('/health', methods=['GET'])
+def health():
+    # Identifies this backend to the MCP server's autostart; no secrets here
+    return jsonify({"success": True, "error": "", "output": {
+        "service": kit_auth.KIT_SERVICE, "version": kit_auth.KIT_VERSION, "api": kit_auth.KIT_API,
+        "pid": os.getpid(), "port": PORT}})
 
  
 @app.route('/add_video', methods=['POST'])
@@ -1718,4 +1731,5 @@ def add_camera_move():
 
 
 if __name__ == '__main__':
+    kit_auth.token()  # create the token file before the first client needs it
     app.run(host='127.0.0.1', port=PORT)
