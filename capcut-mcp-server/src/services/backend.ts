@@ -63,8 +63,13 @@ function takeStartLock(lockPath: string): boolean {
   }
 }
 
+/** The vectcut-api folder (CAPCUT_BACKEND_DIR overrides it). */
+export function backendDir(): string {
+  return process.env.CAPCUT_BACKEND_DIR || DEFAULT_BACKEND_DIR;
+}
+
 function startBackend(): void {
-  const dir = process.env.CAPCUT_BACKEND_DIR || DEFAULT_BACKEND_DIR;
+  const dir = backendDir();
   const python = process.platform === 'win32'
     ? join(dir, 'venv', 'Scripts', 'python.exe')
     : join(dir, 'venv', 'bin', 'python');

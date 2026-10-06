@@ -126,11 +126,8 @@ def _write_atomic(target: str, text: str):
         raise
 
 
-def _blocks_text(result: dict, max_seconds: float = 20) -> str:
-    """Readable transcript: sentence blocks of up to ~20 s, one time range each."""
-    def clock(t):
-        m, sec = divmod(t, 60)
-        return f"{int(m):02d}:{sec:04.1f}"
+def _blocks(result: dict, max_seconds: float = 20) -> List[list]:
+    """Sentence blocks of up to ~20 s: [start, end, text]."""
     lines, cur = [], None
     for seg in result["segments"]:
         if cur and (seg["end"] - cur[0] > max_seconds or seg["start"] - cur[1] > 2):
@@ -142,7 +139,34 @@ def _blocks_text(result: dict, max_seconds: float = 20) -> str:
             cur = None
     if cur:
         lines.append(cur)
-    return "".join(f"[{clock(a)} - {clock(b)}] {t}\n" for a, b, t in lines)
+    return lines
+
+
+def _clock(t: float) -> str:
+    m, sec = divmod(t, 60)
+    return f"{int(m):02d}:{sec:04.1f}"
+
+
+def _blocks_text(result: dict, max_seconds: float = 20) -> str:
+    """Readable transcript: sentence blocks of up to ~20 s, one time range each."""
+    return "".join(f"[{_clock(a)} - {_clock(b)}] {t}\n" for a, b, t in _blocks(result, max_seconds))
+
+
+def transcript_page(result: dict, from_time: float = 0, to_time: Optional[float] = None,
+                    max_chars: int = 12000) -> dict:
+    """One page of the transcript as blocks, without the word timings (which stay in the backend):
+    blocks overlapping [from_time, to_time] up to ~max_chars of text; next_from says where to go on."""
+    blocks, size, next_from = [], 0, None
+    for a, b, t in _blocks(result):
+        if b <= from_time or (to_time is not None and a >= to_time):
+            continue
+        if blocks and size + len(t) + 30 > max_chars:
+            next_from = blocks[-1]["end"]
+            break
+        blocks.append({"start": a, "end": b, "text": t})
+        size += len(t) + 30
+    return {k: result.get(k) for k in ("source", "language", "duration", "engine", "model")} | \
+        {"blocks": blocks, "next_from": next_from}
 
 
 def _save_transcript(path: str, result: dict, fingerprint: dict):

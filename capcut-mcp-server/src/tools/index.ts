@@ -102,22 +102,6 @@ export function registerTools(server: McpServer): void {
 
 This tool initializes a new draft project that can be edited by adding videos, audio, text, images, and effects.
 
-Args:
-  - width (number): Video width in pixels (360-4096, default: 1920)
-  - height (number): Video height in pixels (360-4096, default: 1080)
-  - fps (number): Frames per second (24-120, default: 30)
-  - response_format ('markdown' | 'json'): Output format (default: 'markdown')
-
-Returns:
-  {
-    "draft_id": string,      // Unique draft identifier for subsequent operations
-    "width": number,         // Video width
-    "height": number,        // Video height
-    "fps": number,           // Frame rate
-    "duration": number,      // Current duration (starts at 0)
-    "created_at": string     // ISO timestamp
-  }
-
 Examples:
   - Create HD draft: params with width=1920, height=1080
   - Create vertical video: params with width=1080, height=1920
@@ -158,22 +142,6 @@ Examples:
 
 This tool adds video content to the timeline with support for transitions, speed adjustments, and volume control.
 
-Args:
-  - draft_id (string): The draft ID from create_draft
-  - video_url (string): URL to video file (mp4, mov, avi, mkv, webm, flv)
-  - start (number): Trim start within the source file, in seconds (>= 0)
-  - end (number): Trim end within the source file, in seconds (> 0)
-  - target_start (number): Where the clip starts on the timeline, in seconds (default: 0).
-    To put clips one after another, set target_start to the end of the previous clip.
-  - volume (number): Audio volume 0.0-1.0 (default: 1.0)
-  - transition (string): Optional CapCut transition from THIS clip into the NEXT clip on the same
-    track, so set it on the earlier clip. Exact name from capcut_list_types category="transition".
-  - transition_duration (number): Transition length in seconds (default: 0.5)
-  - speed (number): Playback speed 0.1-10x (default: 1.0)
-  - track_name (string): Optional track; items on one track can't overlap in time, so use a new
-    track name to layer simultaneous items (two texts at once, picture-in-picture, music + voice)
-  - response_format ('markdown' | 'json'): Output format
-
 Examples:
   - Add background video: draft_id="abc123", video_url="https://...", start=0, end=10
   - Add with slow motion: speed=0.5
@@ -211,19 +179,6 @@ Examples:
 
 This tool adds background music or sound effects to the video timeline.
 
-Args:
-  - draft_id (string): The draft ID
-  - audio_url (string): URL or absolute local path to audio file (mp3, wav, aac, m4a, flac, ogg)
-  - start (number): Trim start within the source file, in seconds
-  - end (number): Trim end within the source file, in seconds
-  - target_start (number): Where the audio starts on the timeline, in seconds (default: 0)
-  - volume (number): Audio volume 0.0-1.0 (default: 1.0)
-  - fade_in (number): Fade in duration in seconds (default: 0)
-  - fade_out (number): Fade out duration in seconds (default: 0)
-  - track_name (string): Optional track; items on one track can't overlap in time, so use a new
-    track name to layer simultaneous items (two texts at once, picture-in-picture, music + voice)
-  - response_format ('markdown' | 'json'): Output format
-
 Examples:
   - Add background music: audio_url="https://...", volume=0.5
   - Add with fade: fade_in=2, fade_out=2`,
@@ -258,28 +213,6 @@ Examples:
       description: `Add styled text overlay to video with positioning, colors, shadows, and animations.
 
 This tool creates text elements with full styling control including fonts, colors, backgrounds, shadows, and animations.
-
-Args:
-  - draft_id (string): The draft ID
-  - text (string): Text content to display (1-500 characters)
-  - start (number): Start time in seconds
-  - end (number): End time in seconds
-  - font (string): Font family name (optional)
-  - font_size (number): CapCut scale 1-100, ~5 small, 8 normal, 12-15 big title (default: 8)
-  - font_color (string): Hex color e.g., #FFFFFF (default: #FFFFFF)
-  - background_color (string): Background hex color (optional)
-  - background_alpha (number): Background opacity 0.0-1.0 (default: 0.8, only with background_color)
-  - shadow_enabled (boolean): Enable shadow (default: false)
-  - shadow_color (string): Shadow hex color (default: #000000)
-  - position_x (number): Horizontal position 0.0 (left edge) to 1.0 (right edge), 0.5 = center
-  - position_y (number): Vertical position 0.0 (top) to 1.0 (bottom), 0.5 = center
-  - intro_animation (string): Entrance animation, exact name from capcut_list_types category="text_intro"
-  - intro_duration (number): Entrance duration in seconds (default: 0.5)
-  - outro_animation (string): Exit animation, exact name from capcut_list_types category="text_outro"
-  - outro_duration (number): Exit duration in seconds (default: 0.5)
-  - track_name (string): Optional track; items on one track can't overlap in time, so use a new
-    track name to layer simultaneous items (two texts at once, picture-in-picture, music + voice)
-  - response_format ('markdown' | 'json'): Output format
 
 Examples:
   - Add title: text="Welcome", font_size=14, position_y=0.2, intro_animation="<name from text_intro>"
@@ -316,23 +249,6 @@ Examples:
 
 This tool adds static or animated images to the video timeline.
 
-Args:
-  - draft_id (string): The draft ID
-  - image_url (string): URL to image file (jpg, jpeg, png, gif, webp, bmp)
-  - start (number): Start time in seconds
-  - end (number): End time in seconds
-  - position_x (number): Horizontal position 0.0 (left edge) to 1.0 (right edge), 0.5 = center
-  - position_y (number): Vertical position 0.0 (top) to 1.0 (bottom), 0.5 = center
-  - scale (number): Scale multiplier 0.1-5.0 (default: 1.0)
-  - rotation (number): Clockwise rotation in degrees, -360 to 360 (default: 0)
-  - intro_animation / outro_animation / combo_animation (string): exact names from
-    capcut_list_types categories "intro", "outro", "combo" (each with a *_duration, default 0.5s)
-  - transition (string): transition from this image into the next item on its track;
-    exact name from capcut_list_types category="transition"
-  - track_name (string): Optional track; items on one track can't overlap in time, so use a new
-    track name to layer simultaneous items (two texts at once, picture-in-picture, music + voice)
-  - response_format ('markdown' | 'json'): Output format
-
 Examples:
   - Add logo: image_url="https://...", position_x=0.9, position_y=0.1, scale=0.3
   - Add rotating image: rotation=45, intro_animation="<name from intro>"`,
@@ -367,18 +283,6 @@ Examples:
       description: `Add subtitles from SRT file content with styling options.
 
 This tool imports subtitles in SRT format and applies styling.
-
-Args:
-  - draft_id (string): The draft ID
-  - srt_content (string): SRT text, or an absolute path / URL to an .srt file
-  - time_offset (number): Shift all subtitles by this many seconds (default: 0)
-  - position_y (number): Vertical position 0.0 (top) to 1.0 (bottom), optional
-  - font (string): Font family name (optional)
-  - font_size (number): CapCut scale 1-100, ~5 normal subtitle (default: 5)
-  - font_color (string): Hex color (default: #FFFFFF)
-  - background_enabled (boolean): Enable background (default: true)
-  - background_color (string): Background hex color (default: #000000)
-  - response_format ('markdown' | 'json'): Output format
 
 Example SRT format:
   1
@@ -422,17 +326,6 @@ CapCut interpolates between keyframes. Keyframes are given as three parallel lis
 length: keyframe i = (property_types[i], times[i], values[i]). Keyframes land on the clip of the
 track that covers that time.
 
-Args:
-  - draft_id (string): The draft ID
-  - track_name (string): "video_main" for video clips (default), "image_main" for images
-  - property_types (string[]): Property of each keyframe
-  - times (number[]): Timeline time of each keyframe, in seconds
-  - values (string[]): Value of each keyframe; formats:
-      position_x / position_y: "-1" to "1" from the center (half-canvas units)
-      rotation: "45deg"   scale_x / scale_y / uniform_scale: "1.5"   alpha: "50%"
-      saturation / contrast / brightness: "+0.3" / "-0.2" (relative, -1 to 1)   volume: "80%"
-  - response_format ('markdown' | 'json'): Output format
-
 Saturation/contrast/brightness keyframes are also the way to apply a constant color correction:
 set the same value at the clip's start and end.
 
@@ -474,16 +367,6 @@ Examples:
 This tool adds CapCut's own video effects (the Effects panel) on an effect track over the timeline.
 For color correction (brightness/contrast/saturation) use capcut_add_keyframe instead.
 
-Args:
-  - draft_id (string): The draft ID
-  - effect_type (string): Exact CapCut effect name. Look it up first with capcut_list_types
-    category="scene_effect" (whole frame) or "character_effect" (follows a person).
-  - effect_category ('scene' | 'character'): Must match the list the name came from (default: scene)
-  - start (number): Start time in seconds
-  - end (number): End time in seconds
-  - params (number[]): Optional effect parameters, each 0-100, in the effect's own order; omit for defaults
-  - response_format ('markdown' | 'json'): Output format
-
 Examples:
   - Blur on 0-3s: effect_type="Blur", start=0, end=3, params=[70]
   - Find zoom effects first: capcut_list_types category="scene_effect", search="zoom"`,
@@ -518,18 +401,6 @@ Examples:
       description: `Add sticker/emoji overlay with positioning and transformation.
 
 This tool adds decorative stickers or emojis to the video.
-
-Args:
-  - draft_id (string): The draft ID
-  - sticker_id (string): CapCut sticker resource ID from CapCut's sticker library. There is no
-    catalog to search here: for a custom sticker/emoji/logo use capcut_add_image with a PNG instead.
-  - start (number): Start time in seconds
-  - end (number): End time in seconds
-  - position_x (number): Horizontal position 0.0 (left edge) to 1.0 (right edge), 0.5 = center
-  - position_y (number): Vertical position 0.0 (top) to 1.0 (bottom), 0.5 = center
-  - scale (number): Scale multiplier 0.1-5.0 (default: 1.0)
-  - rotation (number): Clockwise rotation in degrees (default: 0)
-  - response_format ('markdown' | 'json'): Output format
 
 Examples:
   - Add corner sticker: position_x=0.9, position_y=0.1, scale=0.2
@@ -573,19 +444,7 @@ project, existing clips untouched.
 
 Saving again under the same project_name replaces the project this draft saved before; the old folder is
 moved to ~/Movies/CapCut MCP Backups, never deleted. Replacing a project is refused while CapCut is open
-(quit it first), and a project not saved from this draft is replaced only with overwrite=true.
-
-Args:
-  - draft_id (string): The draft ID to save
-  - project_name (string, optional): Name shown in the CapCut projects list
-  - overwrite (boolean, optional): Replace an existing project not saved from this draft
-  - response_format ('markdown' | 'json'): Output format
-
-Returns:
-  {
-    "draft_url": string,    // Path to the saved draft folder
-    "backups": string[]     // Where replaced folders were moved
-  }`,
+(quit it first), and a project not saved from this draft is replaced only with overwrite=true.`,
       inputSchema: SaveDraftSchema,
       annotations: {
         readOnlyHint: false,
@@ -617,18 +476,6 @@ Returns:
       description: `Get duration and metadata of video or audio file.
 
 This tool analyzes media files to retrieve duration, format, and resolution information.
-
-Args:
-  - url (string): URL to media file
-  - response_format ('markdown' | 'json'): Output format
-
-Returns:
-  {
-    "duration": number,     // Duration in seconds
-    "format": string,       // File format
-    "width": number,        // Video width (if video)
-    "height": number        // Video height (if video)
-  }
 
 Examples:
   - Check video length before adding: url="https://example.com/video.mp4"
@@ -665,13 +512,7 @@ Examples:
 
 Use this before capcut_add_video (transition), capcut_add_text (text_intro/text_outro),
 capcut_add_image (intro/outro/combo/transition) and capcut_add_effect (scene_effect/character_effect):
-those tools only accept names exactly as returned here.
-
-Args:
-  - category: transition | intro | outro | combo | text_intro | text_outro | scene_effect |
-    character_effect | mask | audio_effect | font
-  - search (string): Optional case-insensitive substring filter (catalogs have up to ~400 names)
-  - response_format ('markdown' | 'json'): Output format`,
+those tools only accept names exactly as returned here.`,
       inputSchema: ListTypesSchema,
       annotations: {
         readOnlyHint: true,
@@ -716,11 +557,7 @@ Args:
     'capcut_list_projects',
     {
       title: 'List CapCut Projects',
-      description: `List the projects in CapCut's projects folder, most recently modified first.
-
-Args:
-  - search (string): Optional case-insensitive substring filter on the name
-  - response_format ('markdown' | 'json'): Output format`,
+      description: `List the projects in CapCut's projects folder, most recently modified first.`,
       inputSchema: ListProjectsSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
@@ -758,11 +595,7 @@ moved or removed, and the existing tracks cannot be edited through this draft. T
 existing tracks with their end times, to place new items after or over them.
 
 Saving refuses if CapCut is open (quit it first) or if the project was changed in CapCut after it was
-opened (open it again). Before writing, the whole project folder is copied to ~/Movies/CapCut MCP Backups.
-
-Args:
-  - project_name (string): Exact project name (see capcut_list_projects)
-  - response_format ('markdown' | 'json'): Output format`,
+opened (open it again). Before writing, the whole project folder is copied to ~/Movies/CapCut MCP Backups.`,
       inputSchema: OpenProjectSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
     },

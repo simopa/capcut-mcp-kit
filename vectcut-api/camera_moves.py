@@ -17,7 +17,9 @@ Effect moves add one of CapCut's built-in effects (shake, lens zoom, flash...) o
 intensity scales the effect's strength setting.
 """
 
+import json
 import math
+import os
 from typing import Callable, Dict, List, Tuple
 
 import pyJianYingDraft as draft
@@ -62,42 +64,27 @@ def _hold(d: float, ramp: float, peak: float) -> List[Tuple[float, float]]:
 #   scale: multiplier of the clip's scale; x / y: image offset in half-canvas units (+x right,
 #   +y up; the camera moves the opposite way, so a pan left shifts the image right);
 #   rotation: degrees added (clockwise).
-KEYFRAME_MOVES: Dict[str, Tuple[str, Callable[[float, float, Callable], Points]]] = {
-    "punch_in": ("Cut in closer for the range, then cut back (hard zoom, no animation)",
-                 lambda d, k, e: {"scale": _hold(d, 0.03, 1 + 0.18 * k)}),
-    "zoom_in_out": ("Smoothly move in closer, hold, then ease back out",
-                    lambda d, k, e: {"scale": e(_hold(d, 0.6, 1 + 0.15 * k))}),
-    "push_in": ("Slow continuous push in (Ken Burns) over the range",
-                lambda d, k, e: {"scale": e([(0, 1.0), (d, 1 + 0.12 * k)], 6)}),
-    "pull_out": ("Start close and slowly pull back to the normal framing",
-                 lambda d, k, e: {"scale": e([(0, 1 + 0.12 * k), (d, 1.0)], 6)}),
-    "punch": ("Impact hit: fast zoom kick that settles back (fits a beat or a strong word)",
-              lambda d, k, e: {"scale": [(0, 1.0), (0.06, 1 + 0.25 * k), (0.2, 1 + 0.08 * k), (0.35, 1 + 0.02 * k), (0.5, 1.0)]}),
-    "zoom_bounce": ("Quick zoom in with a small elastic overshoot",
-                    lambda d, k, e: {"scale": [(0, 1.0), (0.12, 1 + 0.2 * k), (0.28, 1 + 0.12 * k), (0.4, 1 + 0.16 * k), (0.55, 1 + 0.15 * k)]
-                                  + ([(d, 1 + 0.15 * k)] if d > 0.55 else [])}),
-    "pan_left": ("Camera pans left across a slightly enlarged frame",
-                 lambda d, k, e: {"scale": [(0, 1 + 0.2 * k), (d, 1 + 0.2 * k)], "x": e([(0, -0.12 * k), (d, 0.12 * k)], 6)}),
-    "pan_right": ("Camera pans right across a slightly enlarged frame",
-                  lambda d, k, e: {"scale": [(0, 1 + 0.2 * k), (d, 1 + 0.2 * k)], "x": e([(0, 0.12 * k), (d, -0.12 * k)], 6)}),
-    "tilt_up": ("Camera tilts up across a slightly enlarged frame",
-                lambda d, k, e: {"scale": [(0, 1 + 0.2 * k), (d, 1 + 0.2 * k)], "y": e([(0, 0.12 * k), (d, -0.12 * k)], 6)}),
-    "tilt_down": ("Camera tilts down across a slightly enlarged frame",
-                  lambda d, k, e: {"scale": [(0, 1 + 0.2 * k), (d, 1 + 0.2 * k)], "y": e([(0, -0.12 * k), (d, 0.12 * k)], 6)}),
-    "rotate_in": ("Enter slightly rotated and zoomed, straighten out",
-                  lambda d, k, e: {"rotation": e([(0, -6 * k), (min(0.6, d), 0.0)]),
-                                "scale": e([(0, 1 + 0.15 * k), (min(0.6, d), 1.0)])}),
-    "dutch_tilt": ("Hold a tilted (dutch angle) framing for the range",
-                   lambda d, k, e: {"rotation": [(t, (v - 1) / 0.12 * 5) for t, v in _hold(d, 0.25, 1 + 0.12 * k)],
-                                 "scale": _hold(d, 0.25, 1 + 0.12 * k)}),
-    "handheld": ("Subtle floating handheld drift",
-                 lambda d, k, e: {"scale": [(0, 1 + 0.06 * k), (d, 1 + 0.06 * k)],
+BUILDERS: Dict[str, Callable[[float, float, Callable], Points]] = {
+    "punch_in": lambda d, k, e: {"scale": _hold(d, 0.03, 1 + 0.18 * k)},
+    "zoom_in_out": lambda d, k, e: {"scale": e(_hold(d, 0.6, 1 + 0.15 * k))},
+    "push_in": lambda d, k, e: {"scale": e([(0, 1.0), (d, 1 + 0.12 * k)], 6)},
+    "pull_out": lambda d, k, e: {"scale": e([(0, 1 + 0.12 * k), (d, 1.0)], 6)},
+    "punch": lambda d, k, e: {"scale": [(0, 1.0), (0.06, 1 + 0.25 * k), (0.2, 1 + 0.08 * k), (0.35, 1 + 0.02 * k), (0.5, 1.0)]},
+    "zoom_bounce": lambda d, k, e: {"scale": [(0, 1.0), (0.12, 1 + 0.2 * k), (0.28, 1 + 0.12 * k), (0.4, 1 + 0.16 * k), (0.55, 1 + 0.15 * k)]
+                                  + ([(d, 1 + 0.15 * k)] if d > 0.55 else [])},
+    "pan_left": lambda d, k, e: {"scale": [(0, 1 + 0.2 * k), (d, 1 + 0.2 * k)], "x": e([(0, -0.12 * k), (d, 0.12 * k)], 6)},
+    "pan_right": lambda d, k, e: {"scale": [(0, 1 + 0.2 * k), (d, 1 + 0.2 * k)], "x": e([(0, 0.12 * k), (d, -0.12 * k)], 6)},
+    "tilt_up": lambda d, k, e: {"scale": [(0, 1 + 0.2 * k), (d, 1 + 0.2 * k)], "y": e([(0, 0.12 * k), (d, -0.12 * k)], 6)},
+    "tilt_down": lambda d, k, e: {"scale": [(0, 1 + 0.2 * k), (d, 1 + 0.2 * k)], "y": e([(0, -0.12 * k), (d, 0.12 * k)], 6)},
+    "rotate_in": lambda d, k, e: {"rotation": e([(0, -6 * k), (min(0.6, d), 0.0)]),
+                                "scale": e([(0, 1 + 0.15 * k), (min(0.6, d), 1.0)])},
+    "dutch_tilt": lambda d, k, e: {"rotation": [(t, (v - 1) / 0.12 * 5) for t, v in _hold(d, 0.25, 1 + 0.12 * k)],
+                                 "scale": _hold(d, 0.25, 1 + 0.12 * k)},
+    "handheld": lambda d, k, e: {"scale": [(0, 1 + 0.06 * k), (d, 1 + 0.06 * k)],
                                "x": [(t, 0.012 * k * math.sin(t * 1.3)) for t in _steps(d, 0.5)],
-                               "y": [(t, 0.01 * k * math.sin(t * 0.9 + 1)) for t in _steps(d, 0.5)]}),
-    "whip_left": ("Fast whip pan out to the left at the end of the range (pair with a cut)",
-                  lambda d, k, e: {"x": [(0, 0.0), (max(0, d - 0.18), 0.0), (d, 0.8 * k)]}),
-    "whip_right": ("Fast whip pan out to the right at the end of the range (pair with a cut)",
-                   lambda d, k, e: {"x": [(0, 0.0), (max(0, d - 0.18), 0.0), (d, -0.8 * k)]}),
+                               "y": [(t, 0.01 * k * math.sin(t * 0.9 + 1)) for t in _steps(d, 0.5)]},
+    "whip_left": lambda d, k, e: {"x": [(0, 0.0), (max(0, d - 0.18), 0.0), (d, 0.8 * k)]},
+    "whip_right": lambda d, k, e: {"x": [(0, 0.0), (max(0, d - 0.18), 0.0), (d, -0.8 * k)]},
 }
 
 
@@ -106,21 +93,15 @@ def _steps(d: float, step: float) -> List[float]:
     return [d * i / n for i in range(n + 1)]
 
 
-# Moves made with CapCut's own effects (scene effects, on an effect track)
-EFFECT_MOVES: Dict[str, Tuple[str, str]] = {
-    "shake": ("Camera_Shake", "Camera shake / quake"),
-    "shake_strong": ("Shake_3", "Stronger, rougher shake"),
-    "lens_zoom": ("Zoom_Lens", "Lens zoom pulse"),
-    "mini_zoom": ("Mini_Zoom", "Small rhythmic zoom"),
-    "chroma_zoom": ("Chromozoom", "Zoom with chromatic aberration"),
-    "fisheye": ("Fisheye", "Fisheye lens distortion"),
-    "focus_pull": ("Camera_Focus", "Rack focus (blur to sharp)"),
-    "motion_blur": ("Motion_Blur", "Motion blur (use with whips)"),
-    "swing": ("Rebound_Swing", "Swinging camera"),
-    "flash": ("White_Flash", "White flash (punch / transition accent)"),
-    "flash_black": ("Black_Flash", "Black flash"),
-    "glitch": ("Glitch", "Digital glitch"),
-}
+# Names and descriptions live in camera_moves.json, shared with the MCP server
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "camera_moves.json"), encoding="utf-8") as _f:
+    _CATALOG = json.load(_f)
+KEYFRAME_MOVES: Dict[str, Tuple[str, Callable[[float, float, Callable], Points]]] = {
+    m["name"]: (m["description"], BUILDERS[m["name"]]) for m in _CATALOG["keyframes"]}
+if set(KEYFRAME_MOVES) != set(BUILDERS):
+    raise RuntimeError(f"camera_moves.json and BUILDERS disagree: {sorted(set(BUILDERS) ^ set(KEYFRAME_MOVES))}")
+# Moves made with CapCut's own effects (scene effects, on an effect track): name -> (effect, description)
+EFFECT_MOVES: Dict[str, Tuple[str, str]] = {m["name"]: (m["capcut_effect"], m["description"]) for m in _CATALOG["effects"]}
 
 
 def list_moves() -> List[dict]:

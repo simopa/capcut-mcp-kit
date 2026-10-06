@@ -46,7 +46,17 @@ CapCut drafts folder.
 - `setup.sh` checks prerequisites, installs locked versions, builds aside and swaps only on success.
 - Python and Node tests run on GitHub Actions (macOS).
 
+**Placement, music, catalog**
+- An item that would overlap goes to the first free track like it; `capcut_get_timeline` shows where
+  each track ends.
+- `capcut_add_background_music`: loops to fill the edit, fades, ducks under the voice.
+- One camera-move catalog for backend and MCP server; tool descriptions cut by about 40%;
+  transcripts paged in the backend without word timings.
+
 ## Next
+
+**Typed contracts**
+- Typed request/response objects in the MCP server instead of `any`.
 
 **Safe retries**
 - Optional request IDs so a retried call is not applied twice, and an expected revision so two
@@ -55,12 +65,6 @@ CapCut drafts folder.
 **Editing clips already in a project**
 - Today an opened project can only receive new tracks. Changing its own clips (trim, keyframes,
   camera moves) needs an adapter per clip type, each proven by a no-change round trip first.
-
-**New features**
-- Multi-track placement without collisions (first free track or first free time) and automatic
-  fades for music under a voice.
-- One catalog of names shared by backend and MCP server; shorter tool descriptions; pagination in
-  the backend.
 
 ## Later
 

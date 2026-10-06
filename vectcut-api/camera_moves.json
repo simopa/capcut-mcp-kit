@@ -1,0 +1,127 @@
+{
+  "_comment": "Camera moves offered by capcut_add_camera_move: names and descriptions for both the backend (camera_moves.py, which implements each one) and the MCP server.",
+  "keyframes": [
+    {
+      "name": "punch_in",
+      "description": "cut in closer for the range, then cut back"
+    },
+    {
+      "name": "zoom_in_out",
+      "description": "smoothly move in, hold, ease back out"
+    },
+    {
+      "name": "push_in",
+      "description": "slow continuous push in (Ken Burns)"
+    },
+    {
+      "name": "pull_out",
+      "description": "start close, slowly pull back"
+    },
+    {
+      "name": "punch",
+      "description": "impact hit: fast zoom kick that settles (~0.5 s)"
+    },
+    {
+      "name": "zoom_bounce",
+      "description": "quick zoom in with a small elastic overshoot"
+    },
+    {
+      "name": "pan_left",
+      "description": "camera pans left"
+    },
+    {
+      "name": "pan_right",
+      "description": "camera pans right"
+    },
+    {
+      "name": "tilt_up",
+      "description": "camera tilts up"
+    },
+    {
+      "name": "tilt_down",
+      "description": "camera tilts down"
+    },
+    {
+      "name": "rotate_in",
+      "description": "enter rotated and zoomed, straighten out"
+    },
+    {
+      "name": "dutch_tilt",
+      "description": "hold a tilted (dutch angle) framing"
+    },
+    {
+      "name": "handheld",
+      "description": "subtle floating handheld drift"
+    },
+    {
+      "name": "whip_left",
+      "description": "fast whip pan out to the left at the end of the range"
+    },
+    {
+      "name": "whip_right",
+      "description": "fast whip pan out to the right at the end of the range"
+    }
+  ],
+  "effects": [
+    {
+      "name": "shake",
+      "capcut_effect": "Camera_Shake",
+      "description": "camera shake / quake"
+    },
+    {
+      "name": "shake_strong",
+      "capcut_effect": "Shake_3",
+      "description": "stronger, rougher shake"
+    },
+    {
+      "name": "lens_zoom",
+      "capcut_effect": "Zoom_Lens",
+      "description": "lens zoom pulse"
+    },
+    {
+      "name": "mini_zoom",
+      "capcut_effect": "Mini_Zoom",
+      "description": "small rhythmic zoom"
+    },
+    {
+      "name": "chroma_zoom",
+      "capcut_effect": "Chromozoom",
+      "description": "zoom with chromatic aberration"
+    },
+    {
+      "name": "fisheye",
+      "capcut_effect": "Fisheye",
+      "description": "fisheye lens distortion"
+    },
+    {
+      "name": "focus_pull",
+      "capcut_effect": "Camera_Focus",
+      "description": "rack focus (blur to sharp)"
+    },
+    {
+      "name": "motion_blur",
+      "capcut_effect": "Motion_Blur",
+      "description": "motion blur (use with whips)"
+    },
+    {
+      "name": "swing",
+      "capcut_effect": "Rebound_Swing",
+      "description": "swinging camera"
+    },
+    {
+      "name": "flash",
+      "capcut_effect": "White_Flash",
+      "description": "white flash"
+    },
+    {
+      "name": "flash_black",
+      "capcut_effect": "Black_Flash",
+      "description": "black flash"
+    },
+    {
+      "name": "glitch",
+      "capcut_effect": "Glitch",
+      "description": "digital glitch"
+    }
+  ]
+}

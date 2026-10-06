@@ -32,7 +32,8 @@ const autoTrack = z.boolean()
   .default(true)
   .describe('Move an item that would overlap another one on its track to a free track (default true); false makes an overlap an error');
 
-const animationDuration = z.number()
+// A new instance per field: a shared one loses its description in the JSON schema
+const animationDuration = () => z.number()
   .positive()
   .default(0.5)
   .describe('Animation duration in seconds');
@@ -182,9 +183,9 @@ export const AddTextSchema = z.object({
     .default(0.5)
     .describe('Vertical position (0.0 to 1.0, where 0.5 is center)'),
   intro_animation: capcutName('text_intro'),
-  intro_duration: animationDuration,
+  intro_duration: animationDuration(),
   outro_animation: capcutName('text_outro'),
-  outro_duration: animationDuration,
+  outro_duration: animationDuration(),
   track_name: trackName('text_main'),
   auto_track: autoTrack,
   response_format: ResponseFormatSchema
@@ -223,11 +224,11 @@ export const AddImageSchema = z.object({
     .default(0)
     .describe('Clockwise rotation in degrees'),
   intro_animation: capcutName('intro'),
-  intro_animation_duration: animationDuration,
+  intro_animation_duration: animationDuration(),
   outro_animation: capcutName('outro'),
-  outro_animation_duration: animationDuration,
+  outro_animation_duration: animationDuration(),
   combo_animation: capcutName('combo'),
-  combo_animation_duration: animationDuration,
+  combo_animation_duration: animationDuration(),
   transition: capcutName('transition'),
   transition_duration: z.number()
     .positive()

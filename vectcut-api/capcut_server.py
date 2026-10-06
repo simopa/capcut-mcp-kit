@@ -1665,8 +1665,18 @@ def _media_route(fn):
 
 @app.route('/transcribe', methods=['POST'])
 def transcribe():
-    return _media_route(lambda d: media_analysis.transcribe(
-        d["path"], model=d.get("model", "turbo"), language=d.get("language"), wait=float(d.get("wait", 45))))
+    def run(d):
+        out = media_analysis.transcribe(d["path"], model=d.get("model", "turbo"), language=d.get("language"),
+                                        wait=float(d.get("wait", 45)))
+        page = d.get("page")
+        if page is not None and out.get("status") == "done":
+            # Send one page of blocks instead of the whole transcript with word timings
+            out = {"status": "done", "page": media_analysis.transcript_page(
+                out["transcript"], float(page.get("from_time", 0)),
+                float(page["to_time"]) if page.get("to_time") is not None else None,
+                int(page.get("max_chars", 12000)))}
+        return out
+    return _media_route(run)
 
 
 @app.route('/detect_pauses', methods=['POST'])

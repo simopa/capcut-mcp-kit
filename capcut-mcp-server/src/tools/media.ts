@@ -3,44 +3,22 @@
 
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { apiClient } from '../services/api-client.js';
+import { backendDir } from '../services/backend.js';
 
 const PAGE_CHARS = 12000;
 
-// Mirrors vectcut-api/camera_moves.py
+// Names and descriptions shared with the backend: vectcut-api/camera_moves.json
+const CAMERA_CATALOG = JSON.parse(readFileSync(join(backendDir(), 'camera_moves.json'), 'utf8')) as {
+  keyframes: Array<{ name: string; description: string }>;
+  effects: Array<{ name: string; description: string }>;
+};
 const CAMERA_MOVES = {
-  keyframes: [
-    ['punch_in', 'cut in closer for the range, then cut back'],
-    ['zoom_in_out', 'smoothly move in, hold, ease back out'],
-    ['push_in', 'slow continuous push in (Ken Burns)'],
-    ['pull_out', 'start close, slowly pull back'],
-    ['punch', 'impact hit: fast zoom kick that settles (~0.5 s)'],
-    ['zoom_bounce', 'quick zoom in with a small elastic overshoot'],
-    ['pan_left', 'camera pans left'],
-    ['pan_right', 'camera pans right'],
-    ['tilt_up', 'camera tilts up'],
-    ['tilt_down', 'camera tilts down'],
-    ['rotate_in', 'enter rotated and zoomed, straighten out'],
-    ['dutch_tilt', 'hold a tilted (dutch angle) framing'],
-    ['handheld', 'subtle floating handheld drift'],
-    ['whip_left', 'fast whip pan out to the left at the end of the range'],
-    ['whip_right', 'fast whip pan out to the right at the end of the range']
-  ],
-  effects: [
-    ['shake', 'camera shake / quake'],
-    ['shake_strong', 'stronger, rougher shake'],
-    ['lens_zoom', 'lens zoom pulse'],
-    ['mini_zoom', 'small rhythmic zoom'],
-    ['chroma_zoom', 'zoom with chromatic aberration'],
-    ['fisheye', 'fisheye lens distortion'],
-    ['focus_pull', 'rack focus (blur to sharp)'],
-    ['motion_blur', 'motion blur (use with whips)'],
-    ['swing', 'swinging camera'],
-    ['flash', 'white flash'],
-    ['flash_black', 'black flash'],
-    ['glitch', 'digital glitch']
-  ]
-} as const;
+  keyframes: CAMERA_CATALOG.keyframes.map((m) => [m.name, m.description] as const),
+  effects: CAMERA_CATALOG.effects.map((m) => [m.name, m.description] as const)
+};
 const ALL_MOVES = [...CAMERA_MOVES.keyframes, ...CAMERA_MOVES.effects].map(([n]) => n) as unknown as [string, ...string[]];
 
 const LocalPath = z.string()
@@ -58,23 +36,6 @@ function clock(t: number): string {
 
 // Whisper segments are often a few words long: merge them into readable blocks
 // that end on a sentence or after ~20 s, each with one time range.
-function toBlocks(segments: Segment[], maxSeconds = 20): Segment[] {
-  const blocks: Segment[] = [];
-  let cur: Segment | null = null;
-  for (const s of segments) {
-    if (cur && (s.end - cur.start > maxSeconds || s.start - cur.end > 2)) {
-      blocks.push(cur);
-      cur = null;
-    }
-    cur = cur ? { start: cur.start, end: s.end, text: `${cur.text} ${s.text}` } : { ...s };
-    if (/[.!?]$/.test(s.text) && cur.end - cur.start > maxSeconds / 2) {
-      blocks.push(cur);
-      cur = null;
-    }
-  }
-  if (cur) blocks.push(cur);
-  return blocks;
-}
 
 function text(t: string) {
   return { content: [{ type: 'text' as const, text: t }] };
@@ -116,31 +77,20 @@ Pages hold ~${PAGE_CHARS} characters; the reply says where to continue (from_tim
     },
     async (params) => {
       try {
-        const r = await apiClient.request<any>('/transcribe', 'POST',
-          { path: params.path, language: params.language, model: params.model, wait: 45 });
+        const r = await apiClient.request<any>('/transcribe', 'POST', {
+          path: params.path, language: params.language, model: params.model, wait: 45,
+          page: { from_time: params.from_time, to_time: params.to_time, max_chars: PAGE_CHARS }
+        });
         if (!r.success) throw new Error(r.error);
         const out = r.result;
         if (out.status === 'running') {
           return text(`Transcription running (${out.elapsed}s elapsed). Call capcut_transcribe again with the same path to keep waiting.`);
         }
-        const t = out.transcript;
-        const blocks = toBlocks(t.segments).filter((b) =>
-          b.end > params.from_time && (params.to_time === undefined || b.start < params.to_time));
-        let body = '';
-        let shownUntil = params.from_time;
-        let truncated = false;
-        for (const b of blocks) {
-          const line = `[${clock(b.start)}–${clock(b.end)}] ${b.text}\n`;
-          if (body.length + line.length > PAGE_CHARS) {
-            truncated = true;
-            break;
-          }
-          body += line;
-          shownUntil = b.end;
-        }
+        const t = out.page;
+        const body = (t.blocks as Segment[]).map((b) => `[${clock(b.start)}–${clock(b.end)}] ${b.text}\n`).join('');
         const header = `Transcript of ${t.source} (${t.language}, ${clock(t.duration)}, ${t.engine} ${t.model})\n\n`;
-        const footer = truncated
-          ? `\n[Page ends at ${clock(shownUntil)}: call again with from_time=${Math.floor(shownUntil)} for more]`
+        const footer = t.next_from !== null
+          ? `\n[Page ends at ${clock(t.next_from)}: call again with from_time=${Math.floor(t.next_from)} for more]`
           : '\n[End of transcript]';
         return text(header + body + footer);
       } catch (error) {
