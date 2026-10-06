@@ -85,6 +85,9 @@ salvare**; se nel frattempo hai modificato il progetto in CapCut, va riaperto.
 ## Trasloco su un nuovo Mac
 
 Installa i prerequisiti, poi `git clone` + `./setup.sh` come sopra. Gli ambienti locali (`venv/`,
-`node_modules/`, `dist/`) non sono nel repository: li rigenera `setup.sh`.
+`node_modules/`, `dist/`) non sono nel repository: li rigenera `setup.sh`, con le stesse versioni dei
+pacchetti (file `requirements*.lock.txt` e `package-lock.json`). Si può rilanciare quando si vuole:
+prepara tutto a parte e sostituisce l'installazione solo se funziona. I draft in corso stanno in
+`~/Library/Application Support/capcut-mcp-kit`: copiala se vuoi ritrovarli sul nuovo Mac.
 
 Elenco completo delle modifiche rispetto ai progetti originali: [NOTICE](../NOTICE).

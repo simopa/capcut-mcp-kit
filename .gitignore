@@ -14,3 +14,10 @@ __pycache__/
 *.pyc
 *.log
 .DS_Store
+
+# setup.sh builds aside and swaps
+vectcut-api/venv.new/
+vectcut-api/venv.old/
+capcut-mcp-server/.build/
+capcut-mcp-server/node_modules.old/
+capcut-mcp-server/dist.old/

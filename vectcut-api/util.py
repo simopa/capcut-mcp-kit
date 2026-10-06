@@ -1,3 +1,5 @@
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows asset paths built off Windows no longer double the drive separator.
+# See NOTICE at the repository root.
 import shutil
 import subprocess
 import json
@@ -35,7 +37,7 @@ def build_draft_asset_path(draft_folder: str, draft_id: str, asset_type: str, ma
 
         windows_drive, windows_path = re.match(r'([a-zA-Z]:)(.*)', draft_folder).groups()
         parts = [p for p in windows_path.split('\\') if p]
-        return os.path.join(f"{windows_drive}\\", *parts, draft_id, "assets", asset_type, material_name).replace('/', '\\')
+        return "\\".join([windows_drive, *parts, draft_id, "assets", asset_type, material_name])
 
     return os.path.join(draft_folder, draft_id, "assets", asset_type, material_name)
 

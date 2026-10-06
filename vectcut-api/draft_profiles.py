@@ -1,3 +1,5 @@
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: canvas ratio is adjusted only when the content has a canvas_config (none was invented).
+# See NOTICE at the repository root.
 import json
 import os
 import shutil
@@ -106,18 +108,18 @@ def write_profile_content(profile: DraftProfile, draft_dir: os.PathLike, content
     written: List[Path] = []
     content_data = json.loads(content)
 
-    # Auto-adjust canvas_config ratio based on dimensions
-    canvas_cfg = content_data.get("canvas_config", {})
-    w = canvas_cfg.get("width", content_data.get("width", 1080))
-    h = canvas_cfg.get("height", content_data.get("height", 1920))
-    if canvas_cfg.get("ratio") in ("original", None, ""):
-        if h > w:
-            canvas_cfg["ratio"] = "9:16"
-        elif w > h:
-            canvas_cfg["ratio"] = "16:9"
-        elif w == h:
-            canvas_cfg["ratio"] = "1:1"
-    content_data["canvas_config"] = canvas_cfg
+    # Auto-adjust canvas_config ratio based on dimensions (only when there is a canvas_config)
+    canvas_cfg = content_data.get("canvas_config")
+    if isinstance(canvas_cfg, dict):
+        w = canvas_cfg.get("width", content_data.get("width", 1080))
+        h = canvas_cfg.get("height", content_data.get("height", 1920))
+        if canvas_cfg.get("ratio") in ("original", None, ""):
+            if h > w:
+                canvas_cfg["ratio"] = "9:16"
+            elif w > h:
+                canvas_cfg["ratio"] = "16:9"
+            elif w == h:
+                canvas_cfg["ratio"] = "1:1"
     content = json.dumps(content_data, ensure_ascii=False, indent=2)
 
     # Remove any stale .locked files in draft directory

@@ -55,6 +55,10 @@ vectcut-api/
     flags real projects.
   - media_analysis.py: subtitles are placed from the clips on the timeline instead
     of an in-memory list.
+  - util.py: Windows asset paths built on macOS no longer double the drive separator.
+  - draft_profiles.py: the canvas ratio is adjusted only when the content has a
+    canvas_config (one was invented otherwise).
+  - requirements.lock.txt, requirements-whisper-mlx.lock.txt (new): exact versions.
   - kit_auth.py (new), capcut_server.py: GET /health identifies the backend; every
     other request needs the shared token. settings/local.py: CAPCUT_PORT override.
   - downloader.py: remote downloads are http(s) only, size-capped, never left

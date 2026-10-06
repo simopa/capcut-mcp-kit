@@ -57,6 +57,15 @@ cd capcut-mcp-kit
 # or: ./setup.sh ~/my-videos  # register it only for one project folder
 ```
 
+`setup.sh` installs the exact package versions in `vectcut-api/requirements*.lock.txt` and
+`capcut-mcp-server/package-lock.json`. It can be run again at any time (to update, or on a new Mac):
+it builds everything aside and switches only when the new build works, then stops a running backend
+so the next tool call starts the new one. Drafts in progress live in
+`~/Library/Application Support/capcut-mcp-kit`; copy that folder to keep them on a new Mac.
+
+Tests: `cd vectcut-api && venv/bin/python -m pip install pytest && venv/bin/python -m pytest` and
+`cd capcut-mcp-server && npm test`; GitHub Actions runs both on macOS.
+
 ## Use
 
 1. Open Claude Code, approve the `capcut` MCP server, and ask, for example:

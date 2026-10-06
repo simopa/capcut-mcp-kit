@@ -38,6 +38,14 @@ CapCut drafts folder.
 - Short ranges squeeze the move and always end on the starting framing; easing presets for
   professional camera movements; effect moves honour intensity and flash.
 
+**Infrastructure**
+- `GET /health` identifies the backend; the autostart accepts only the kit's backend at a compatible
+  API version, starts it once across clients, passes the port and re-checks after a lost connection.
+- A shared token (mode 600 file) is required on every other request; remote downloads are http(s)
+  only, size-capped and never left partial.
+- `setup.sh` checks prerequisites, installs locked versions, builds aside and swaps only on success.
+- Python and Node tests run on GitHub Actions (macOS).
+
 ## Next
 
 **Safe retries**
@@ -47,12 +55,6 @@ CapCut drafts folder.
 **Editing clips already in a project**
 - Today an opened project can only receive new tracks. Changing its own clips (trim, keyframes,
   camera moves) needs an adapter per clip type, each proven by a no-change round trip first.
-
-**Infrastructure**
-- Backend health check with identity and version; one autostart at a time across clients.
-- Shared token between the MCP server and the backend; limits on remote downloads.
-- Non-destructive `setup.sh` with pinned dependencies (`npm ci`, locked Python packages).
-- Node tests and GitHub Actions on macOS.
 
 **New features**
 - Multi-track placement without collisions (first free track or first free time) and automatic

@@ -1,0 +1,30 @@
+# Tests on every push and pull request: the backend's Python tests (Whisper and CapCut are never
+# needed: transcription is simulated and projects are synthetic) and the MCP server's build and tests.
+name: CI
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: capcut-mcp-server/package-lock.json
+      - name: ffmpeg
+        run: brew install ffmpeg
+      - name: Backend tests
+        working-directory: vectcut-api
+        run: |
+          python -m pip install -q -r requirements.lock.txt pytest
+          python -m pytest -q
+      - name: MCP server build and tests
+        working-directory: capcut-mcp-server
+        run: |
+          npm ci
+          npm test
