@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; routes that change a draft are transactional (draft_store), create_draft and open_project idempotent with request_id; unfinished saves settled at startup; /open_project; list_projects flags real projects and reads the same folder as open_project; /add_background_music, /timeline, /list_clips; auto_track; create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted; token required (kit_auth) except GET /health.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: Windows-only reload import made optional; add_audio fade_in/fade_out; add_image rotation; routes /transcribe, /detect_pauses, /add_video_without_pauses, /add_auto_subtitles, /camera_moves, /add_camera_move; routes that change a draft are transactional (draft_store), create_draft and open_project idempotent with request_id; unfinished saves settled at startup; /open_project; list_projects flags real projects and reads the same folder as open_project; /add_background_music, /timeline, /list_clips, /edit_clip; auto_track; create_draft applies and returns fps; save_draft reports failures and takes overwrite; preview routes off by default; only loopback Host/Origin accepted; token required (kit_auth) except GET /health.
 # See NOTICE at the repository root.
 import requests
 import os
@@ -1751,6 +1751,23 @@ def add_background_music():
 @app.route('/timeline', methods=['POST'])
 def timeline():
     return _media_route(lambda d: music.timeline(d.get("draft_id")))
+
+
+@app.route('/edit_clip', methods=['POST'])
+@transactional
+def edit_clip():
+    def run(d):
+        import clip_edits
+        import draft_store
+        script = draft_store.get_draft(d.get("draft_id"))
+        base = getattr(script, "base_project", None)
+        if not base:
+            raise ValueError("This draft was not opened from a CapCut project (capcut_open_project): it has no clips "
+                             "of its own to edit")
+        return {"draft_id": d["draft_id"], **clip_edits.edit_timing(
+            base, d.get("clip_id") or "", trim_start=d.get("trim_start") or 0, trim_end=d.get("trim_end") or 0,
+            move_to=d.get("move_to"), ripple=d.get("ripple") is True)}
+    return _media_route(run)
 
 
 @app.route('/list_clips', methods=['POST'])

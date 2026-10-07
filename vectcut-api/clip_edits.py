@@ -243,3 +243,123 @@ def inventory(base: dict, kind: str = None, editable_only: bool = False, offset:
     return {"project_name": base["name"], "total": len(clips), "offset": offset, "clips": page,
             "next_offset": offset + limit if offset + limit < len(clips) else None,
             "edits": len(base.get("edits") or [])}
+
+
+# --- Timing edits ---------------------------------------------------------------------------------
+
+def _us(seconds) -> int:
+    return int(round(float(seconds) * 1_000_000))
+
+
+def _end(r: dict) -> int:
+    return r["start"] + r["duration"]
+
+
+def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=None, ripple=False) -> dict:
+    """Trim and/or move one clip, like dragging it in CapCut: trim_start cuts from its beginning
+    (its start moves later; negative extends it back into the file), trim_end cuts from its end,
+    move_to places it at a new start (seconds). With ripple, the clips after it on its track shift by
+    the change of its end. Every clip that changes must be editable and the result must hold on
+    the track: no overlap, transitions still joining their clips, keyframes, fades and the source
+    within the clip and the file. Records the edits in the draft; returns what changed."""
+    sd = _errors()
+    content = current_content(base)
+    mats = _materials(content)
+    found, dups = _segments(content)
+    loc = next(((ti, track, seg) for ti, track, seg in found if seg.get("id") == segment_id), None)
+    if loc is None:
+        raise sd.SaveDraftError(f"No clip {segment_id} in '{base['name']}': list the clips with capcut_list_clips")
+    ti, track, seg = loc
+
+    def locked(s):
+        return clip_verdict(s, _kind(s, mats), mats, dups)
+    if locked(seg):
+        raise sd.SaveDraftError(f"Clip {segment_id} cannot be edited: {locked(seg)}")
+    d1, d2 = _us(trim_start or 0), _us(trim_end or 0)
+    if not d1 and not d2 and move_to is None:
+        raise sd.SaveDraftError("Nothing to do: give trim_start, trim_end or move_to")
+
+    t, s = dict(seg["target_timerange"]), dict(seg["source_timerange"])
+    old_end = _end(t)
+    t["start"] += d1
+    t["duration"] -= d1 + d2
+    s["start"] += d1
+    s["duration"] -= d1 + d2  # the same change on both keeps any 1 µs rounding between them
+    if move_to is not None:
+        t["start"] = _us(move_to)
+    changes = {segment_id: {"target_timerange": t, "source_timerange": s}}
+
+    problems = []
+    frame = int(round(1_000_000 / float(content.get("fps") or 30)))
+    material = mats.get(seg.get("material_id"), (None, {}))[1]
+    if t["duration"] < frame:
+        problems.append("it would last less than a frame")
+    if t["start"] < 0:
+        problems.append("it would start before the beginning of the timeline")
+    if s["start"] < 0:
+        problems.append(f"it would start {(-s['start']) / 1e6:.3f}s before the beginning of its file")
+    if isinstance(material.get("duration"), int) and _end(s) > material["duration"]:
+        problems.append(f"it would go {(_end(s) - material['duration']) / 1e6:.3f}s past the end of its file")
+    if seg.get("common_keyframes"):
+        keyframes = copy.deepcopy(seg["common_keyframes"])
+        for kl in keyframes:
+            for k in kl.get("keyframe_list", []):
+                k["time_offset"] -= d1  # offsets are from the clip's start
+                if not 0 <= k["time_offset"] <= t["duration"]:
+                    problems.append("a keyframe would fall outside the clip (that would change the animation)")
+        if d1:
+            changes[segment_id]["common_keyframes"] = keyframes
+    refs = {mats.get(r, (None,))[0]: mats.get(r, (None, {}))[1] for r in seg.get("extra_material_refs") or []}
+    if "material_animations" in refs and t["duration"] != seg["target_timerange"]["duration"]:
+        problems.append("it has intro/outro animations, whose timing would no longer match its length")
+    fade = refs.get("audio_fades")
+    if fade and (fade.get("fade_in_duration") or 0) + (fade.get("fade_out_duration") or 0) > t["duration"]:
+        problems.append("its fades would no longer fit")
+
+    shift = _end(t) - old_end
+    if ripple and shift:
+        for _, other_track, other in found:
+            if other_track is track and other is not seg and other["target_timerange"]["start"] >= old_end:
+                if locked(other):
+                    problems.append(f"clip {other.get('id')} after it would have to move but cannot be edited: {locked(other)}")
+                moved = dict(other["target_timerange"])
+                moved["start"] += shift
+                changes[other["id"]] = {"target_timerange": moved}
+
+    # The track as it would be: no overlap, transitions still joining their clips and fitting
+    before = sorted(track.get("segments") or [], key=lambda x: x["target_timerange"]["start"])
+    after = sorted(before, key=lambda x: changes.get(x.get("id"), {}).get("target_timerange", x["target_timerange"])["start"])
+    tr = {x.get("id"): changes.get(x.get("id"), {}).get("target_timerange", x["target_timerange"]) for x in before}
+    for a, b in zip(after, after[1:]):
+        if _end(tr[a["id"]]) > tr[b["id"]]["start"]:
+            problems.append(f"it would overlap clip {b['id'] if a is seg else a['id']} on its track")
+    for a, b in zip(before, before[1:]):
+        transition = next((m for r in a.get("extra_material_refs") or []
+                           for key, m in [mats.get(r, (None, {}))] if key == "transitions"), None)
+        if not transition or _end(a["target_timerange"]) != b["target_timerange"]["start"]:
+            continue
+        if a["id"] not in changes and b["id"] not in changes:
+            continue
+        if _end(tr[a["id"]]) != tr[b["id"]]["start"]:
+            problems.append(f"the transition between {a['id']} and {b['id']} would no longer join them")
+        elif min(tr[a["id"]]["duration"], tr[b["id"]]["duration"]) < (transition.get("duration") or 0):
+            problems.append(f"the transition between {a['id']} and {b['id']} would no longer fit")
+    if problems:
+        raise sd.SaveDraftError(f"Clip {segment_id} was not changed: " + "; ".join(dict.fromkeys(problems)))
+
+    for sid, fields in changes.items():
+        record_edit(base, sid, fields)
+    notes = []
+
+    def gaps(ranges):
+        spans = sorted((r["start"], _end(r)) for r in ranges)
+        return {(e, n) for (_, e), (n, _) in zip(spans, spans[1:]) if n > e} | \
+            ({(0, spans[0][0])} if spans and spans[0][0] > 0 else set())
+    if ti == 0 and track.get("type") == "video":
+        new_gaps = gaps(tr.values()) - gaps(x["target_timerange"] for x in before)
+        if new_gaps:
+            notes.append("The main track now has a gap at " + ", ".join(f"{g / 1e6:.3f}s ({(n - g) / 1e6:.3f}s long)"
+                                                                        for g, n in sorted(new_gaps)) +
+                         ": use ripple to close it, or fill it")
+    return {"clip": next(c for c in inventory(base, limit=500)["clips"] if c["id"] == segment_id),
+            "shifted": [sid for sid in changes if sid != segment_id], "notes": notes}

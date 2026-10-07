@@ -133,18 +133,19 @@ time, before the additions. All save and recovery guarantees stay as they are.
    track, type, timeline start/end, source in/out, speed, file, existing keyframes, and whether it
    is editable. A clip is editable only if its adapter reads and rewrites it identically (no-change
    round trip); anything not fully understood is listed but locked, with the reason.
-2. *Edit log and extended check* — done (no tool records edits yet). At save: original → edits → additions. The check restores the
-   original value of every declared field and removes the additions: the result must be exactly
+2. *Edit log and extended check* — done. At save: original → edits → additions. The check
+   restores the original value of every declared field and removes the additions: the result must be exactly
    the original timeline, or nothing is written. An edit whose expected value is no longer there
    (project changed) is refused.
-3. *Timing adapter* (`capcut_edit_clip`: trim start/end, move) for video, photo and audio clips.
-   Only the segment's `target_timerange`/`source_timerange` and the project duration change.
-   Refused with a reason: source beyond the file's length, overlap on the track, speed other
-   than a constant 1× (first version), a transition or intro/outro animation that no longer fits,
-   keyframes that cannot be shifted exactly. No ripple (later clips do not move) in the first
-   version. Keyframe offsets are relative to the clip's start: trimming the start shifts them.
-4. *Proof.* Synthetic tests, a no-change round trip and edit round trips on copies of real projects
-   (read only, in a temporary folder), then a visual check in CapCut.
+3. *Timing adapter* — done. `capcut_edit_clip` trims (start, end) and moves video, photo and audio
+   clips at a constant 1× speed, with optional ripple on the clip's track. Only the segments'
+   `target_timerange`/`source_timerange` (and keyframe offsets on a start trim) and the project
+   duration change. Refused with a reason: source beyond the file, overlap on the track, keyframes
+   that would fall outside the clip, a transition that would no longer join or fit its clips, a
+   length change with intro/outro animations, fades that no longer fit. Trial on copies of all real
+   projects: every editable clip trimmed with ripple and saved, only the declared fields changed.
+4. *Proof* — synthetic tests and round trips on copies of real projects done; remaining: a visual
+   check in CapCut (gaps on the main track, transitions, keyframes after a trim).
 
 Seen in the projects analysed (read-only copies, 10 projects, 379 clips): video/photo/audio clips
 carry six kinds of material references (speeds, canvases, placeholder infos, sound channel

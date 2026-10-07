@@ -177,6 +177,14 @@ export const ClipListResult = z.object({
   clips: z.array(Clip)
 }).passthrough();
 
+export const EditClipResult = z.object({
+  draft_id: z.string(),
+  revision: z.number(),
+  clip: Clip,
+  shifted: z.array(z.string()),
+  notes: z.array(z.string())
+}).passthrough();
+
 export const CameraMoveResult = DraftRefResult.extend({
   move: z.string(),
   kind: z.enum(['keyframes', 'effect']),
@@ -188,7 +196,7 @@ export const CameraMoveResult = DraftRefResult.extend({
 export const CONTRACTS = {
   DraftRefResult, CreateDraftResult, SaveDraftResult, DurationResult, ListTypesResult,
   ListProjectsResult, OpenProjectResult, TranscribeResult, SpeechRangesResult, WithoutPausesResult,
-  AutoSubtitlesResult, MusicResult, TimelineResult, CameraMoveResult, ClipListResult
+  AutoSubtitlesResult, MusicResult, TimelineResult, CameraMoveResult, ClipListResult, EditClipResult
 } as const;
 
 export type DraftRef = z.infer<typeof DraftRefResult>;

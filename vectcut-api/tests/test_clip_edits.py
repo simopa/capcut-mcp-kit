@@ -183,3 +183,149 @@ def test_edits_stack_and_only_editable_clips_take_them(env, client):
         edit(d, "NOPE", target_timerange={"start": 0, "duration": 1})
     with pytest.raises(Exception, match="would not change"):
         edit(d, "SEG-A", target_timerange={"start": 500_000, "duration": 3_000_000})
+
+
+# --- Timing edits (trim, move) -------------------------------------------------------------------
+
+def main_track(transition=False, animation=False, fades=False):
+    """Two clips back to back on the main track (from one 20 s file), plus an audio clip."""
+    c = capcut_content()
+    m = c["materials"]
+    m["videos"][0]["duration"] = 20_000_000
+    first = c["tracks"][0]["segments"][0]
+    first["speed"] = 1.0
+    second = copy.deepcopy(first)
+    second.update(id="SEG-2", target_timerange={"start": 4_000_000, "duration": 4_000_000},
+                  source_timerange={"start": 10_000_000, "duration": 4_000_000})
+    c["tracks"][0]["segments"].append(second)
+    if transition:
+        m["transitions"] = [{"id": "TR-1", "duration": 1_000_000, "name": "Dissolve"}]
+        first["extra_material_refs"].append("TR-1")
+    if animation:
+        m["material_animations"] = [{"id": "AN-1", "animations": [{"type": "in", "start": 0, "duration": 500_000}]}]
+        second["extra_material_refs"].append("AN-1")
+    m["audios"] = [{"id": "MAT-A1", "path": "/somewhere/voice.wav", "duration": 9_000_000}]
+    audio = {"id": "SEG-A", "material_id": "MAT-A1", "speed": 1.0, "extra_material_refs": [],
+             "target_timerange": {"start": 0, "duration": 4_000_000},
+             "source_timerange": {"start": 0, "duration": 4_000_000}}
+    if fades:
+        m["audio_fades"] = [{"id": "FD-1", "fade_in_duration": 1_000_000, "fade_out_duration": 1_500_000}]
+        audio["extra_material_refs"].append("FD-1")
+    c["tracks"].append({"id": "TRK-A", "type": "audio", "name": "", "segments": [audio]})
+    return c
+
+
+def edit_clip(client, d, clip_id, **kw):
+    return call(client, "/edit_clip", draft_id=d, clip_id=clip_id, **kw)
+
+
+def timing(client, d, clip_id):
+    c = next(c for c in call(client, "/list_clips", draft_id=d)["output"]["clips"] if c["id"] == clip_id)
+    return c["start"], c["end"], c["source_start"], c["source_end"]
+
+
+def test_trimming_the_end_shortens_the_clip_and_leaves_a_gap(env, client):
+    root, d = opened(env, client, main_track())
+    out = edit_clip(client, d, "SEG-1", trim_end=1)
+    assert out["success"], out
+    assert out["output"]["clip"]["end"] == 3 and out["output"]["revision"] == 2
+    assert "gap at 3.000s (1.000s long)" in out["output"]["notes"][0]
+    assert timing(client, d, "SEG-2") == (4, 8, 10, 14)
+    assert call(client, "/save_draft", draft_id=d)["success"]
+    seg = json.loads((root / "draft_info.json").read_text())["tracks"][0]["segments"][0]
+    assert seg["target_timerange"] == {"start": 0, "duration": 3_000_000}
+    assert seg["source_timerange"] == {"start": 0, "duration": 3_000_000}
+
+
+def test_trimming_the_start_moves_the_clip_start_and_its_keyframes(env, client):
+    c = main_track()
+    c["tracks"][0]["segments"][1]["common_keyframes"] = [{"property_type": "KFTypeScaleX", "keyframe_list": [
+        {"id": "K", "time_offset": 2_000_000, "curveType": "Line", "values": [1.2]}]}]
+    root, d = opened(env, client, c)
+    assert edit_clip(client, d, "SEG-2", trim_start=1.5)["success"]
+    assert timing(client, d, "SEG-2") == (5.5, 8, 11.5, 14)
+    assert call(client, "/save_draft", draft_id=d)["success"]
+    seg = json.loads((root / "draft_info.json").read_text())["tracks"][0]["segments"][1]
+    assert seg["common_keyframes"][0]["keyframe_list"][0]["time_offset"] == 500_000  # same moment of the file
+
+
+def test_ripple_moves_the_clips_after_it(env, client):
+    root, d = opened(env, client, main_track())
+    out = edit_clip(client, d, "SEG-1", trim_end=1, ripple=True)
+    assert out["success"] and out["output"]["shifted"] == ["SEG-2"] and out["output"]["notes"] == []
+    assert timing(client, d, "SEG-2") == (3, 7, 10, 14)
+    assert timing(client, d, "SEG-A") == (0, 4, 0, 4)  # other tracks do not move
+
+
+def test_moving_a_clip(env, client):
+    root, d = opened(env, client, main_track())
+    assert edit_clip(client, d, "SEG-2", move_to=9)["success"]
+    assert timing(client, d, "SEG-2") == (9, 13, 10, 14)
+    out = edit_clip(client, d, "SEG-2", move_to=2)
+    assert not out["success"] and "overlap clip SEG-1" in out["error"]
+
+
+@pytest.mark.parametrize("kw, reason", [
+    (dict(trim_end=-7), "past the end of its file"),
+    (dict(trim_start=-1), "overlap clip SEG-1"),
+    (dict(trim_end=3.99), "less than a frame"),
+    (dict(trim_start=1, move_to=0, ripple=False, clip="SEG-1"), "before the beginning of its file"),
+    (dict(move_to=-1), "before the beginning of the timeline"),
+    (dict(), "Nothing to do"),
+])
+def test_impossible_edits_are_refused_and_change_nothing(env, client, kw, reason):
+    root, d = opened(env, client, main_track())
+    clip = kw.pop("clip", "SEG-2")
+    if clip == "SEG-1":
+        kw = dict(trim_start=-0.5)
+    before = call(client, "/list_clips", draft_id=d)["output"]
+    out = edit_clip(client, d, clip, **kw)
+    assert not out["success"] and reason in out["error"], out
+    assert call(client, "/list_clips", draft_id=d)["output"] == before
+
+
+def test_keyframes_that_would_fall_outside_are_refused(env, client):
+    c = main_track()
+    c["tracks"][0]["segments"][1]["common_keyframes"] = [{"property_type": "KFTypeScaleX", "keyframe_list": [
+        {"id": "K", "time_offset": 500_000, "curveType": "Line", "values": [1.2]}]}]
+    root, d = opened(env, client, c)
+    out = edit_clip(client, d, "SEG-2", trim_start=1)
+    assert not out["success"] and "keyframe would fall outside" in out["error"]
+
+
+def test_a_transition_must_still_join_its_clips(env, client):
+    root, d = opened(env, client, main_track(transition=True))
+    out = edit_clip(client, d, "SEG-1", trim_end=1)
+    assert not out["success"] and "no longer join them" in out["error"]
+    out = edit_clip(client, d, "SEG-1", trim_end=3.5, ripple=True)
+    assert not out["success"] and "no longer fit" in out["error"]
+    assert edit_clip(client, d, "SEG-1", trim_end=1, ripple=True)["success"]  # the cut moves, both follow
+
+
+def test_animations_and_fades_limit_what_can_change(env, client):
+    root, d = opened(env, client, main_track(animation=True, fades=True))
+    out = edit_clip(client, d, "SEG-2", trim_end=1)
+    assert not out["success"] and "animations" in out["error"]
+    assert edit_clip(client, d, "SEG-2", move_to=10)["success"]  # moving keeps its length
+    out = edit_clip(client, d, "SEG-A", trim_end=2)
+    assert not out["success"] and "fades would no longer fit" in out["error"]
+    assert edit_clip(client, d, "SEG-A", trim_end=1)["success"]
+
+
+def test_a_locked_clip_or_a_new_draft_cannot_be_edited(env, client):
+    root, d = opened(env, client, rich_content())
+    out = edit_clip(client, d, "SEG-T", trim_end=1)
+    assert not out["success"] and "text clips cannot be edited yet" in out["error"]
+    new = call(client, "/create_draft", width=1080, height=1920)["output"]["draft_id"]
+    out = edit_clip(client, new, "SEG-1", trim_end=1)
+    assert not out["success"] and "capcut_open_project" in out["error"]
+
+
+def test_an_edit_is_a_draft_change_like_any_other(env, client):
+    root, d = opened(env, client, main_track())
+    first = edit_clip(client, d, "SEG-1", trim_end=1, request_id="r1")
+    assert first["success"]
+    assert edit_clip(client, d, "SEG-1", trim_end=1, request_id="r1") == first  # a retry is not applied twice
+    assert timing(client, d, "SEG-1") == (0, 3, 0, 3)
+    out = edit_clip(client, d, "SEG-1", trim_end=1, expected_revision=1)
+    assert not out["success"] and "revision" in out["error"]

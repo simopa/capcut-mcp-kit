@@ -879,5 +879,114 @@
       "clips"
     ],
     "additionalProperties": true
+  },
+  "EditClipResult": {
+    "type": "object",
+    "properties": {
+      "draft_id": {
+        "type": "string"
+      },
+      "revision": {
+        "type": "number"
+      },
+      "clip": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "track": {
+            "type": "number"
+          },
+          "track_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "track_name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "start": {
+            "type": "number"
+          },
+          "end": {
+            "type": "number"
+          },
+          "source_start": {
+            "type": "number"
+          },
+          "source_end": {
+            "type": "number"
+          },
+          "keyframes": {
+            "type": "array",
+            "items": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "transition": {
+            "type": "boolean"
+          },
+          "animation": {
+            "type": "boolean"
+          },
+          "editable": {
+            "type": "boolean"
+          },
+          "locked_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "track",
+          "track_type",
+          "track_name",
+          "kind",
+          "name",
+          "start",
+          "end",
+          "keyframes",
+          "transition",
+          "animation",
+          "editable",
+          "locked_reason"
+        ],
+        "additionalProperties": true
+      },
+      "shifted": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "notes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "draft_id",
+      "revision",
+      "clip",
+      "shifted",
+      "notes"
+    ],
+    "additionalProperties": true
   }
 }

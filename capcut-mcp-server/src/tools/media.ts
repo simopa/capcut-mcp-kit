@@ -377,6 +377,48 @@ edits made in this draft. Read only. Filter with kind or editable_only; page wit
   );
 
   server.registerTool(
+    'capcut_edit_clip',
+    {
+      title: 'Trim or Move a Clip of an Opened Project',
+      description: `Trim or move a clip already in a project opened with capcut_open_project, like dragging it
+in CapCut (ids from capcut_list_clips; only clips listed as editable). Seconds:
+  - trim_start: cut from the clip's beginning (its start moves later); negative extends it back
+  - trim_end: cut from its end; negative extends it
+  - move_to: new start on the timeline
+  - ripple: the clips after it on the same track shift by the same amount (closes or opens the gap)
+Refused, with the reason, if the clip would overlap another, go past its file, lose keyframes, fades or
+a transition, or change length with intro/outro animations. Nothing is written to the project until
+capcut_save_draft, which checks that only these clips changed.`,
+      inputSchema: z.object({
+        draft_id: z.string().min(1),
+        clip_id: z.string().min(1),
+        trim_start: z.number().optional(),
+        trim_end: z.number().optional(),
+        move_to: z.number().min(0).optional(),
+        ripple: z.boolean().optional(),
+        expected_revision: z.number().int().optional()
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+    },
+    async (params) => {
+      try {
+        const r = await apiClient.request('/edit_clip', 'POST', params, C.EditClipResult);
+        if (!r.success) throw new Error(r.error);
+        const t = r.result;
+        const c = t.clip;
+        let out = `Clip \`${c.id}\` now ${c.start}-${c.end}s on the timeline` +
+          (c.source_start !== undefined ? `, source ${c.source_start}-${c.source_end}s` : '') +
+          ` (revision ${t.revision}; written to the project at capcut_save_draft).`;
+        if (t.shifted.length) out += `\nShifted with it: ${t.shifted.map((s) => `\`${s}\``).join(', ')}.`;
+        for (const n of t.notes) out += `\n- ${n}`;
+        return { content: [{ type: 'text' as const, text: out }], structuredContent: t };
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+
+  server.registerTool(
     'capcut_add_camera_move',
     {
       title: 'Add Camera Move',
