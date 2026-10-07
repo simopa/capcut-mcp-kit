@@ -150,6 +150,9 @@ def test_project_routes_match_their_contracts(env):
     clips = reply(env, "/list_clips", "ClipListResult", draft_id=d)
     assert [c["id"] for c in clips["clips"]] == ["SEG-1"] and clips["clips"][0]["editable"]
     reply(env, "/edit_clip", "EditClipResult", draft_id=d, clip_id="SEG-1", trim_end=1)
+    reply(env, "/add_camera_move", "CameraMoveResult", draft_id=d, move="push_in", start=0, end=1)
+    reply(env, "/add_video_keyframe", "DraftRefResult", draft_id=d, property_types=["alpha"], times=[0.5],
+          values=["50%"])
     saved = reply(env, "/save_draft", "SaveDraftResult", draft_id=d)
     assert saved["added_tracks"] == 1
 

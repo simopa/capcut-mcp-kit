@@ -21,7 +21,7 @@ Built on [VectCutAPI](https://github.com/sun-guannan/VectCutAPI) and
 [capcut-mcp-server](https://github.com/Atx-Guy/capcut-mcp-server), which did not work together out
 of the box; this kit fixes and extends them (details in [NOTICE](NOTICE)).
 
-> **Status: 0.7.** macOS with CapCut desktop 9.1 (international). Windows untested; `setup.sh` is
+> **Status: 0.8.** macOS with CapCut desktop 9.1 (international). Windows untested; `setup.sh` is
 > macOS-only.
 
 ## How it works
@@ -159,6 +159,9 @@ Conventions:
   leaves a gap. Edits
   are recorded in the draft and written at save time, after a check that the saved timeline differs
   from the original only in the fields of the clips that were edited.
+  On an opened project, `capcut_add_camera_move` and `capcut_add_keyframe` also work on the clips
+  already there (its main video track, or `project_track` from `capcut_list_clips`): the keyframes the
+  move does not touch, and every field the kit does not know, are kept exactly as they were.
 - **Saving** again under the same `project_name` replaces the project that draft saved before; the
   old folder is moved to `~/Movies/CapCut MCP Backups` (set `CAPCUT_MCP_BACKUP_DIR` to change it),
   never deleted, and backups are not pruned. A project the draft did not save, or that was changed in

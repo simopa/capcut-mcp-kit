@@ -421,3 +421,87 @@ def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=N
                          ": use ripple to close it, or fill it")
     return {"clip": next(c for c in inventory(base, limit=500)["clips"] if c["id"] == segment_id),
             "shifted": [sid for sid in changes if sid != segment_id], "notes": notes}
+
+
+# --- Keyframes on existing clips ------------------------------------------------------------------
+
+KEYFRAME_PROPERTIES = {"position_x": "KFTypePositionX", "position_y": "KFTypePositionY", "rotation": "KFTypeRotation",
+                       "scale_x": "KFTypeScaleX", "scale_y": "KFTypeScaleY", "uniform_scale": "KFTypeScaleX",
+                       "alpha": "KFTypeAlpha", "saturation": "KFTypeSaturation", "contrast": "KFTypeContrast",
+                       "brightness": "KFTypeBrightness", "volume": "KFTypeVolume"}
+
+
+def keyframe_value(prop: str, value) -> float:
+    """A keyframe value as capcut_add_keyframe takes it ("50%", "45deg", "+0.2", "1.5") as a number."""
+    v = str(value).strip()
+    if prop in ("alpha", "volume") and v.endswith("%"):
+        return float(v[:-1]) / 100
+    if prop == "rotation" and v.endswith("deg"):
+        return float(v[:-3])
+    number = float(v)
+    if prop in ("position_x", "position_y") and not -10 <= number <= 10:
+        raise ValueError(f"{prop} must be between -10 and 10")
+    if prop in ("scale_x", "scale_y", "uniform_scale") and number <= 0:
+        raise ValueError(f"{prop} must be above 0")
+    if prop == "alpha" and not 0 <= number <= 1:
+        raise ValueError("alpha must be between 0 and 1 (or 0%-100%)")
+    return number
+
+
+def add_keyframes(base: dict, project_track, property_types: list, times: list, values: list) -> dict:
+    """Set keyframes on clips of an existing project's track (its index in the project, default the
+    main track): each at a time on the timeline, on the clip there, replacing one at the same moment.
+    All or nothing; recorded as edits of the clips' keyframes."""
+    from camera_moves import _JsonClip
+    from pyJianYingDraft.keyframe import Keyframe, Keyframe_list, Keyframe_property
+    sd = _errors()
+    if not (len(property_types) == len(times) == len(values)) or not property_types:
+        raise ValueError("property_types, times and values must be lists of the same, non-zero length")
+    content = current_content(base)
+    mats = _materials(content)
+    _, dups = _segments(content)
+    tracks = content.get("tracks", [])
+    ti = next((i for i, t in enumerate(tracks) if t.get("type") == "video" and t.get("segments")), None) \
+        if project_track is None else int(project_track)
+    if ti is None or not 0 <= ti < len(tracks) or tracks[ti].get("type") not in ("video", "audio"):
+        raise ValueError("project_track must be the index of a video or audio track of the project (the track field "
+                         "of capcut_list_clips)")
+    track = tracks[ti]
+    clips = {}
+    for prop, at, raw_value in zip(property_types, times, values):
+        if prop not in KEYFRAME_PROPERTIES:
+            raise ValueError(f"Unknown keyframe property {prop}")
+        if track["type"] == "audio" and prop != "volume":
+            raise ValueError(f"An audio track takes only volume keyframes, not {prop}")
+        value = keyframe_value(prop, raw_value)
+        t_us = _us(at)
+        seg = next((s for s in track.get("segments") or []
+                    if s["target_timerange"]["start"] <= t_us < _end(s["target_timerange"])), None) or \
+            next((s for s in track.get("segments") or [] if _end(s["target_timerange"]) == t_us), None)
+        if seg is None:
+            raise ValueError(f"No clip on track {ti} of the project at {at}s")
+        if seg["id"] not in clips:
+            reason = clip_verdict(seg, _kind(seg, mats), mats, dups)
+            if reason is None and not isinstance(seg.get("common_keyframes"), list):
+                reason = "its keyframes are not in the expected form"
+            if reason is None:
+                try:
+                    clips[seg["id"]] = _JsonClip(seg)
+                except (ValueError, KeyError, IndexError, TypeError):
+                    reason = "it has keyframes the kit does not know"
+            if reason:
+                raise sd.SaveDraftError(f"Clip {seg['id']} cannot take keyframes: {reason}")
+        clip = clips[seg["id"]]
+        if prop == "uniform_scale" and not clip.uniform_scale:
+            raise ValueError(f"Clip {seg['id']} has separate x/y scale: use scale_x and scale_y")
+        kf_prop = Keyframe_property(KEYFRAME_PROPERTIES[prop])
+        kl = next((k for k in clip.common_keyframes if k.keyframe_property == kf_prop), None)
+        if kl is None:
+            kl = Keyframe_list(kf_prop)
+            clip.common_keyframes.append(kl)
+        offset = t_us - seg["target_timerange"]["start"]
+        kl.keyframes = [k for k in kl.keyframes if k.time_offset != offset] + [Keyframe(offset, value)]
+        kl.keyframes.sort(key=lambda k: k.time_offset)
+    for sid, clip in clips.items():
+        record_edit(base, sid, {"common_keyframes": clip.export()})
+    return {"clips": len(clips), "keyframes": len(property_types), "project_track": ti}

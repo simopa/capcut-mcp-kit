@@ -13,7 +13,7 @@ import secrets
 from draft_store import private_dir, state_dir
 
 KIT_SERVICE = "capcut-mcp-kit"
-KIT_VERSION = "0.7.0"
+KIT_VERSION = "0.8.0"
 KIT_API = 1
 TOKEN_HEADER = "X-CapCut-Kit-Token"
 

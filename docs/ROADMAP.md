@@ -150,6 +150,9 @@ time, before the additions. All save and recovery guarantees stay as they are.
    trim keeps the clip's start and the clips after it close up, and moves are refused; titles on
    other tracks do not follow (the reply says so).
 
+Camera moves and keyframes now work on the clips of an opened project too: the untouched keyframes
+and unknown fields are kept as they were (trial on copies of real projects: only keyframes changed).
+
 Text clips can now be trimmed and moved too, and `ripple_all` shifts the clips after a cut on every
 track, so titles and music stay in step.
 
@@ -163,8 +166,7 @@ linear (`Line`) with offsets relative to the clip start; source ranges stay with
 duration; text clips made by the kit carry references to missing materials (to be locked or
 understood before text editing).
 
-Later adapters: keyframes and camera moves on existing clips, volume, text, deleting clips, speed,
-ripple editing.
+Later adapters: volume, text content and style, deleting clips, speed.
 
 **Projects from CapCut's cloud (made on the phone)**
 

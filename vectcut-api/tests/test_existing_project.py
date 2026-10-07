@@ -32,7 +32,7 @@ def capcut_content():
             "segments": [{"id": "SEG-1", "material_id": "MAT-V1", "render_index": 0,
                           "target_timerange": {"start": 0, "duration": 4_000_000},
                           "source_timerange": {"start": 0, "duration": 4_000_000},
-                          "extra_material_refs": ["SPD-1"], "future_segment_field": True}],
+                          "extra_material_refs": ["SPD-1"], "common_keyframes": [], "future_segment_field": True}],
         }],
     }
 

@@ -239,6 +239,7 @@ def test_trimming_the_end_shortens_the_clip_and_leaves_a_gap(env, client):
 
 def test_trimming_the_start_moves_the_clip_start_and_its_keyframes(env, client):
     c = main_track()
+    c["tracks"][1]["segments"][0]["common_keyframes"] = []  # the audio clip, as CapCut writes it
     c["tracks"][0]["segments"][1]["common_keyframes"] = [{"property_type": "KFTypeScaleX", "keyframe_list": [
         {"id": "K", "time_offset": 2_000_000, "curveType": "Line", "values": [1.2]}]}]
     root, d = opened(env, client, c)
@@ -287,6 +288,7 @@ def test_impossible_edits_are_refused_and_change_nothing(env, client, kw, reason
 
 def test_keyframes_that_would_fall_outside_are_refused(env, client):
     c = main_track()
+    c["tracks"][1]["segments"][0]["common_keyframes"] = []  # the audio clip, as CapCut writes it
     c["tracks"][0]["segments"][1]["common_keyframes"] = [{"property_type": "KFTypeScaleX", "keyframe_list": [
         {"id": "K", "time_offset": 500_000, "curveType": "Line", "values": [1.2]}]}]
     root, d = opened(env, client, c)
@@ -446,3 +448,101 @@ def test_new_titles_refer_to_nothing_missing(env, client):
     mats = clip_edits._materials(content)
     refs = [r for t in content["tracks"] for s in t["segments"] for r in s["extra_material_refs"]]
     assert all(r in mats for r in refs)
+
+
+# --- Camera moves on existing clips --------------------------------------------------------------
+
+def keyframed_project():
+    """Two clips on the main track; the second already has a scale keyframe with a field the kit
+    does not know, which must survive untouched outside the move's range."""
+    c = main_track()
+    for seg in c["tracks"][0]["segments"]:
+        seg.update(common_keyframes=[], uniform_scale={"on": True, "value": 1.0},
+                   clip={"scale": {"x": 1.0, "y": 1.0}, "rotation": 0.0, "transform": {"x": 0.0, "y": 0.0},
+                         "alpha": 1.0, "flip": {"horizontal": False, "vertical": False}})
+    c["tracks"][1]["segments"][0]["common_keyframes"] = []  # the audio clip, as CapCut writes it
+    c["tracks"][0]["segments"][1]["common_keyframes"] = [{
+        "id": "KL-1", "material_id": "", "property_type": "KFTypeScaleX", "future_list_field": 7,
+        "keyframe_list": [{"id": "K-OLD", "time_offset": 3_500_000, "curveType": "Line", "values": [1.5],
+                           "graphID": "", "left_control": {"x": 0.0, "y": 0.0}, "right_control": {"x": 0.0, "y": 0.0},
+                           "future_keyframe_field": "keep me"}]}]
+    return c
+
+
+def segment(root, sid):
+    return next(s for t in json.loads((root / "draft_info.json").read_text())["tracks"] for s in t["segments"]
+                if s["id"] == sid)
+
+
+def test_a_camera_move_animates_existing_clips_and_keeps_other_keyframes(env, client):
+    root, d = opened(env, client, keyframed_project())
+    out = call(client, "/add_camera_move", draft_id=d, move="punch_in", start=1, end=2)
+    assert out["success"] and out["output"]["clips"] == 1 and out["output"]["project_track"] == 0, out
+    out = call(client, "/add_camera_move", draft_id=d, move="push_in", start=4.5, end=6)
+    assert out["success"] and out["output"]["clips"] == 1, out
+    assert call(client, "/save_draft", draft_id=d)["success"]
+
+    first = segment(root, "SEG-1")
+    scale = next(kl for kl in first["common_keyframes"] if kl["property_type"] == "KFTypeScaleX")
+    offsets = [k["time_offset"] for k in scale["keyframe_list"]]
+    assert offsets[0] >= 1_000_000 and offsets[-1] <= 2_000_000 and len(offsets) >= 3
+    second = segment(root, "SEG-2")
+    kl = next(kl for kl in second["common_keyframes"] if kl["property_type"] == "KFTypeScaleX")
+    assert kl["future_list_field"] == 7 and kl["id"] == "KL-1"
+    old = [k for k in kl["keyframe_list"] if k["id"] == "K-OLD"]
+    assert old == [{"id": "K-OLD", "time_offset": 3_500_000, "curveType": "Line", "values": [1.5], "graphID": "",
+                    "left_control": {"x": 0.0, "y": 0.0}, "right_control": {"x": 0.0, "y": 0.0},
+                    "future_keyframe_field": "keep me"}]  # outside the move (0.5-2 s of the clip): as it was
+    clip = next(c for c in call(client, "/list_clips", draft_id=d)["output"]["clips"] if c["id"] == "SEG-1")
+    assert clip["keyframes"] == ["KFTypeScaleX"]
+
+
+def test_refuse_mode_and_locked_clips_stop_a_move_on_existing_clips(env, client):
+    c = keyframed_project()
+    root, d = opened(env, client, c)
+    out = call(client, "/add_camera_move", draft_id=d, move="push_in", start=7, end=8, mode="refuse")
+    assert not out["success"] and "mode='refuse'" in out["error"]
+    out = call(client, "/add_camera_move", draft_id=d, move="push_in", start=0, end=1, project_track=1)
+    assert not out["success"] and "index of a video track" in out["error"]
+    out = call(client, "/add_camera_move", draft_id=d, move="push_in", start=20, end=21)
+    assert not out["success"] and "No clip on track 0" in out["error"]
+    assert call(client, "/list_clips", draft_id=d)["output"]["edits"] == 0
+
+
+def test_an_effect_move_on_an_opened_project_is_an_added_track(env, client):
+    root, d = opened(env, client, keyframed_project())
+    out = call(client, "/add_camera_move", draft_id=d, move="shake", start=1, end=2)
+    assert out["success"] and out["output"]["kind"] == "effect", out
+    out = call(client, "/save_draft", draft_id=d)
+    assert out["success"] and out["output"]["added_tracks"] == 1
+
+
+def test_keyframes_on_existing_clips(env, client):
+    root, d = opened(env, client, keyframed_project())
+    out = call(client, "/add_video_keyframe", draft_id=d, property_types=["alpha", "alpha", "rotation"],
+               times=[0, 1, 5], values=["0%", "100%", "45deg"])
+    assert out["success"] and out["output"]["clips"] == 2 and out["output"]["added_keyframes_count"] == 3, out
+    out = call(client, "/add_video_keyframe", draft_id=d, property_types=["alpha"], times=[1], values=["50%"])
+    assert out["success"]  # replaces the keyframe at the same moment
+    assert call(client, "/save_draft", draft_id=d)["success"]
+    alpha = next(kl for kl in segment(root, "SEG-1")["common_keyframes"] if kl["property_type"] == "KFTypeAlpha")
+    assert [(k["time_offset"], k["values"]) for k in alpha["keyframe_list"]] == [(0, [0.0]), (1_000_000, [0.5])]
+    rotation = next(kl for kl in segment(root, "SEG-2")["common_keyframes"] if kl["property_type"] == "KFTypeRotation")
+    assert [(k["time_offset"], k["values"]) for k in rotation["keyframe_list"]] == [(1_000_000, [45.0])]
+    old = next(kl for kl in segment(root, "SEG-2")["common_keyframes"] if kl["property_type"] == "KFTypeScaleX")
+    assert old["keyframe_list"][0]["future_keyframe_field"] == "keep me"
+
+
+def test_keyframes_on_existing_clips_are_all_or_nothing(env, client):
+    root, d = opened(env, client, keyframed_project())
+    out = call(client, "/add_video_keyframe", draft_id=d, property_types=["alpha", "alpha"], times=[1, 30],
+               values=["50%", "50%"])
+    assert not out["success"] and "No clip on track 0" in out["error"]
+    out = call(client, "/add_video_keyframe", draft_id=d, property_types=["position_x"], times=[1], values=["99"])
+    assert not out["success"] and "between -10 and 10" in out["error"]
+    out = call(client, "/add_video_keyframe", draft_id=d, property_types=["rotation"], times=[1], values=["9deg"],
+               project_track=1)
+    assert not out["success"] and "only volume" in out["error"]
+    assert call(client, "/add_video_keyframe", draft_id=d, property_types=["volume"], times=[1], values=["50%"],
+                project_track=1)["success"]
+    assert call(client, "/list_clips", draft_id=d)["output"]["edits"] == 1

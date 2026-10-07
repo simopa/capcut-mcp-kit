@@ -328,6 +328,10 @@ track that covers that time.
 Saturation/contrast/brightness keyframes are also the way to apply a constant color correction:
 set the same value at the clip's start and end.
 
+On a project opened with capcut_open_project, keyframes go on the project's own clips (its main video
+track, or project_track; volume also on an audio track), replacing one at the same moment; keyframes
+already there are kept. All or nothing; written at capcut_save_draft.
+
 Examples:
   - Slow zoom in over 0-4s: property_types=["uniform_scale","uniform_scale"], times=[0,4], values=["1.0","1.3"]
   - Fade from transparent: property_types=["alpha","alpha"], times=[0,1], values=["0%","100%"]

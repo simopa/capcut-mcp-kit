@@ -210,51 +210,9 @@ def _effect_params(move: str, intensity: float):
     return params
 
 
-def add_camera_move(draft_id: str, move: str, start: float, end: float, intensity: float = 1.0,
-                    track_name: str = "video_main", flash: bool = False, mode: str = "compose",
-                    easing: str = "smooth") -> dict:
-    if start < 0 or end <= start:
-        raise ValueError("Need 0 <= start < end")
-    if end - start < MIN_DURATION:
-        raise ValueError(f"A camera move needs at least {MIN_DURATION}s")
-    if mode not in ("compose", "replace", "refuse"):
-        raise ValueError("mode must be compose, replace or refuse")
-    if easing not in EASINGS:
-        raise ValueError(f"easing must be one of {', '.join(EASINGS)}")
-    if move not in KEYFRAME_MOVES and move not in EFFECT_MOVES:
-        raise ValueError(f"Unknown move {move}: see the list in capcut_add_camera_move")
-    draft_id, script = get_or_create_draft(draft_id=draft_id)
-    from add_effect_impl import add_effect_impl
-
-    if move in EFFECT_MOVES:
-        add_effect_impl(effect_type=EFFECT_MOVES[move][0], effect_category="scene", start=start, end=end,
-                        draft_id=draft_id, track_name="camera_fx", params=_effect_params(move, intensity))
-        if flash:
-            add_effect_impl(effect_type="White_Flash", effect_category="scene", start=start,
-                            end=min(end, start + 0.25), draft_id=draft_id, track_name="camera_fx_flash")
-        return {"draft_id": draft_id, "draft_url": generate_draft_url(draft_id), "move": move,
-                "kind": "effect", "clips": 0}
-
-    track = script.tracks.get(track_name)
-    if track is None or track.track_type != draft.Track_type.video:
-        raise ValueError(f"Video track {track_name} not found (video tracks: "
-                         f"{[n for n, t in script.tracks.items() if t.track_type == draft.Track_type.video]})")
-    # Keyframes queued with capcut_add_keyframe become real first, so the move composes with them
-    track.process_pending_keyframes()
-
-    d = end - start
-    curves = {prop: _anchored(pts, d, NEUTRAL[prop])
-              for prop, pts in KEYFRAME_MOVES[move][1](d, intensity, _easer(easing)).items()}
-    s_us, e_us = int(start * 1e6), int(end * 1e6)
-    overlaps = []
-    for seg in track.segments:
-        a = max(seg.target_timerange.start, s_us)
-        b = min(seg.target_timerange.end, e_us)
-        if b > a:
-            overlaps.append((seg, a - seg.target_timerange.start, b - seg.target_timerange.start))
-    if not overlaps:
-        raise ValueError(f"No clip on track {track_name} between {start}s and {end}s")
-
+def _apply_keyframe_move(overlaps, curves, mode: str, s_us: int):
+    """Write a move's curves on the clips it overlaps: [(segment, a, b)] with a/b the overlap as offsets
+    from each clip's start."""
     if mode == "refuse":
         for seg, a, b in overlaps:
             for prop in curves:
@@ -294,6 +252,150 @@ def add_camera_move(draft_id: str, move: str, start: float, end: float, intensit
                 times = sorted(t for t in times if a <= t <= b)
                 samples = [(off, keep[off] if off in keep else value(off)) for off in times]
                 _write(seg, kf_prop, samples, a, b)
+
+
+class _JsonClip:
+    """A clip of a project opened with capcut_open_project (its JSON), seen as the segment the move
+    code works on. export() gives back its common_keyframes: every keyframe (and list) the move did
+    not touch is the original dict, unknown fields and curve settings included."""
+
+    def __init__(self, seg: dict):
+        from types import SimpleNamespace
+        clip = seg.get("clip") or {}
+        sc, tr = clip.get("scale") or {}, clip.get("transform") or {}
+        self.clip_settings = SimpleNamespace(scale_x=sc.get("x", 1.0), scale_y=sc.get("y", 1.0),
+                                             transform_x=tr.get("x", 0.0), transform_y=tr.get("y", 0.0),
+                                             rotation=clip.get("rotation", 0.0))
+        self.uniform_scale = (seg.get("uniform_scale") or {}).get("on", True)
+        t = seg["target_timerange"]
+        self.target_timerange = SimpleNamespace(start=t["start"], duration=t["duration"], end=t["start"] + t["duration"])
+        self._lists, self._keyframes = {}, {}
+        self.common_keyframes = []
+        for raw in seg.get("common_keyframes") or []:
+            kl = Keyframe_list(Keyframe_property(raw["property_type"]))  # ValueError: a property the kit does not know
+            self._lists[id(kl)] = raw
+            for k in raw.get("keyframe_list") or []:
+                kf = Keyframe(k["time_offset"], k["values"][0])
+                kf.values = list(k["values"])
+                self._keyframes[id(kf)] = (k, k["time_offset"], list(k["values"]))
+                kl.keyframes.append(kf)
+            self.common_keyframes.append(kl)
+
+    def export(self) -> list:
+        out = []
+        for kl in self.common_keyframes:
+            entries = []
+            for kf in kl.keyframes:
+                raw = self._keyframes.get(id(kf))
+                same = raw is not None and raw[1] == kf.time_offset and raw[2] == kf.values
+                entries.append(raw[0] if same else kf.export_json())
+            raw = self._lists.get(id(kl))
+            out.append({**(raw if raw is not None else kl.export_json()), "keyframe_list": entries})
+        return out
+
+
+def _move_existing_clips(base: dict, project_track, curves, mode: str, s_us: int, e_us: int, start: float, end: float):
+    """Apply a keyframe move to the clips of an existing project's video track (its index in the
+    project, default the main track), recorded as edits of their keyframes. Returns (clips, track)."""
+    import clip_edits
+    content = clip_edits.current_content(base)
+    mats = clip_edits._materials(content)
+    _, dups = clip_edits._segments(content)
+    tracks = content.get("tracks", [])
+    if project_track is None:
+        ti = next((i for i, t in enumerate(tracks) if t.get("type") == "video" and t.get("segments")), None)
+    else:
+        ti = int(project_track)
+    if ti is None or not 0 <= ti < len(tracks) or tracks[ti].get("type") != "video":
+        raise ValueError("project_track must be the index of a video track of the project (the track field of "
+                         "capcut_list_clips)")
+    overlaps = []
+    for seg in tracks[ti].get("segments") or []:
+        t = seg["target_timerange"]
+        a, b = max(t["start"], s_us), min(t["start"] + t["duration"], e_us)
+        if b <= a:
+            continue
+        kind = clip_edits._kind(seg, mats)
+        reason = clip_edits.clip_verdict(seg, kind, mats, dups) or \
+            (None if kind in ("video", "photo") else f"{kind} clips have no framing to move")
+        if reason is None and not isinstance(seg.get("common_keyframes"), list):
+            reason = "its keyframes are not in the expected form"
+        if reason is None:
+            try:
+                wrapped = _JsonClip(seg)
+            except (ValueError, KeyError, IndexError, TypeError):
+                reason = "it has keyframes the kit does not know"
+        if reason:
+            raise ValueError(f"Clip {seg.get('id')} cannot take the move: {reason}")
+        overlaps.append((wrapped, a - t["start"], b - t["start"], seg))
+    if not overlaps:
+        raise ValueError(f"No clip on track {ti} of the project between {start}s and {end}s")
+    _apply_keyframe_move([(w, a, b) for w, a, b, _ in overlaps], curves, mode, s_us)
+    for wrapped, _, _, seg in overlaps:
+        clip_edits.record_edit(base, seg["id"], {"common_keyframes": wrapped.export()})
+    return len(overlaps), ti
+
+
+def add_camera_move(draft_id: str, move: str, start: float, end: float, intensity: float = 1.0,
+                    track_name: str = "video_main", flash: bool = False, mode: str = "compose",
+                    easing: str = "smooth", project_track=None) -> dict:
+    if start < 0 or end <= start:
+        raise ValueError("Need 0 <= start < end")
+    if end - start < MIN_DURATION:
+        raise ValueError(f"A camera move needs at least {MIN_DURATION}s")
+    if mode not in ("compose", "replace", "refuse"):
+        raise ValueError("mode must be compose, replace or refuse")
+    if easing not in EASINGS:
+        raise ValueError(f"easing must be one of {', '.join(EASINGS)}")
+    if move not in KEYFRAME_MOVES and move not in EFFECT_MOVES:
+        raise ValueError(f"Unknown move {move}: see the list in capcut_add_camera_move")
+    draft_id, script = get_or_create_draft(draft_id=draft_id)
+    from add_effect_impl import add_effect_impl
+
+    if move in EFFECT_MOVES:
+        add_effect_impl(effect_type=EFFECT_MOVES[move][0], effect_category="scene", start=start, end=end,
+                        draft_id=draft_id, track_name="camera_fx", params=_effect_params(move, intensity))
+        if flash:
+            add_effect_impl(effect_type="White_Flash", effect_category="scene", start=start,
+                            end=min(end, start + 0.25), draft_id=draft_id, track_name="camera_fx_flash")
+        return {"draft_id": draft_id, "draft_url": generate_draft_url(draft_id), "move": move,
+                "kind": "effect", "clips": 0}
+
+    base = getattr(script, "base_project", None)
+    if base and (project_track is not None or track_name not in script.tracks):
+        # A project opened with capcut_open_project: animate its own clips, recorded as edits
+        d = end - start
+        curves = {prop: _anchored(pts, d, NEUTRAL[prop])
+                  for prop, pts in KEYFRAME_MOVES[move][1](d, intensity, _easer(easing)).items()}
+        clips, ti = _move_existing_clips(base, project_track, curves, mode, int(start * 1e6), int(end * 1e6),
+                                         start, end)
+        if flash:
+            add_effect_impl(effect_type="White_Flash", effect_category="scene", start=start,
+                            end=min(end, start + 0.25), draft_id=draft_id, track_name="camera_fx_flash")
+        return {"draft_id": draft_id, "draft_url": generate_draft_url(draft_id), "move": move,
+                "kind": "keyframes", "clips": clips, "mode": mode, "project_track": ti}
+
+    track = script.tracks.get(track_name)
+    if track is None or track.track_type != draft.Track_type.video:
+        raise ValueError(f"Video track {track_name} not found (video tracks: "
+                         f"{[n for n, t in script.tracks.items() if t.track_type == draft.Track_type.video]})")
+    # Keyframes queued with capcut_add_keyframe become real first, so the move composes with them
+    track.process_pending_keyframes()
+
+    d = end - start
+    curves = {prop: _anchored(pts, d, NEUTRAL[prop])
+              for prop, pts in KEYFRAME_MOVES[move][1](d, intensity, _easer(easing)).items()}
+    s_us, e_us = int(start * 1e6), int(end * 1e6)
+    overlaps = []
+    for seg in track.segments:
+        a = max(seg.target_timerange.start, s_us)
+        b = min(seg.target_timerange.end, e_us)
+        if b > a:
+            overlaps.append((seg, a - seg.target_timerange.start, b - seg.target_timerange.start))
+    if not overlaps:
+        raise ValueError(f"No clip on track {track_name} between {start}s and {end}s")
+
+    _apply_keyframe_move(overlaps, curves, mode, s_us)
 
     if flash:
         add_effect_impl(effect_type="White_Flash", effect_category="scene", start=start,

@@ -91,6 +91,8 @@ vectcut-api/
     default video track first; empty tracks are not exported and video_main is the first
     video track, so clips sit on CapCut's main track. save_draft_impl.py: a save reports
     gaps on the main track (CapCut's magnet closes them).
+  - camera_moves.py, clip_edits.py, capcut_server.py: camera moves and keyframes on the
+    clips of an opened project (project_track), recorded as edits of their keyframes.
   - pyJianYingDraft/text_segment.py: texts no longer refer to a speed material that is
     never written. clip_edits.py: text clips can be trimmed and moved; ripple_all.
   - pyJianYingDraft/video_segment.py: a clip with no speed given gets the documented 1.0

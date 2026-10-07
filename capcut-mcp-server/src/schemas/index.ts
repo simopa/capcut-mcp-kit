@@ -296,6 +296,8 @@ export const AddKeyframeSchema = z.object({
   values: z.array(z.string())
     .min(1)
     .describe('Value of each keyframe (same length as property_types), see tool description for formats'),
+  project_track: z.number().int().min(0).optional()
+    .describe('For a project opened with capcut_open_project: index of its own track to animate (the track field of capcut_list_clips; default its main video track)'),
   response_format: ResponseFormatSchema
 }).strict();
 

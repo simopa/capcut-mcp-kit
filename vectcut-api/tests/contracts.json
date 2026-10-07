@@ -747,6 +747,9 @@
           "replace",
           "refuse"
         ]
+      },
+      "project_track": {
+        "type": "number"
       }
     },
     "required": [

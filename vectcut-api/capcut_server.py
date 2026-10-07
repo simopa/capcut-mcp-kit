@@ -715,6 +715,22 @@ def add_video_keyframe():
     }
 
     try:
+        import draft_store
+        base = getattr(draft_store.get_draft(draft_id), "base_project", None) if draft_id else None
+        if base and (data.get('project_track') is not None or
+                     track_name not in draft_store.get_draft(draft_id).tracks):
+            # A project opened with capcut_open_project: keyframes on its own clips, recorded as edits
+            import clip_edits
+            single = property_types is None
+            out = clip_edits.add_keyframes(base, data.get('project_track'),
+                                           [property_type] if single else property_types,
+                                           [time] if single else times, [value] if single else values)
+            result["success"] = True
+            result["output"] = {"draft_id": draft_id, "draft_url": utilgenerate_draft_url(draft_id),
+                                "added_keyframes_count": out["keyframes"], "clips": out["clips"],
+                                "project_track": out["project_track"]}
+            return jsonify(result)
+
         # Call add_video_keyframe_impl method
         draft_result = add_video_keyframe_impl(
             draft_id=draft_id,
@@ -1734,7 +1750,8 @@ def add_camera_move():
     return _media_route(lambda d: camera_moves.add_camera_move(
         d["draft_id"], d["move"], float(d["start"]), float(d["end"]),
         intensity=float(d.get("intensity", 1.0)), track_name=d.get("track_name") or "video_main",
-        flash=bool(d.get("flash", False)), mode=d.get("mode") or "compose", easing=d.get("easing") or "smooth"))
+        flash=bool(d.get("flash", False)), mode=d.get("mode") or "compose", easing=d.get("easing") or "smooth",
+        project_track=d.get("project_track")))
 
 
 @app.route('/add_background_music', methods=['POST'])

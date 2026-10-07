@@ -189,7 +189,8 @@ export const CameraMoveResult = DraftRefResult.extend({
   move: z.string(),
   kind: z.enum(['keyframes', 'effect']),
   clips: z.number(),
-  mode: z.enum(['compose', 'replace', 'refuse']).optional()
+  mode: z.enum(['compose', 'replace', 'refuse']).optional(),
+  project_track: z.number().optional()
 });
 
 /** Every contract by name: exported to vectcut-api/tests/contracts.json for the backend's tests. */

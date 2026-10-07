@@ -450,6 +450,8 @@ Args:
   - start / end (number): Timeline range in seconds
   - intensity (number): 0.3 subtle - 1 default - 2 strong
   - track_name (string): Video track to move (keyframe moves)
+  - project_track (number): on a project opened with capcut_open_project, index of its own video track
+    (from capcut_list_clips; default its main track): the move animates the clips already there
   - flash (boolean): Add a short white flash at the start (good with punch / punch_in)
   - mode ('compose' | 'replace' | 'refuse'), easing ('smooth' | 'linear' | 'snappy' | 'dramatic')`,
       inputSchema: z.object({
@@ -461,7 +463,8 @@ Args:
         track_name: z.string().min(1).optional(),
         flash: z.boolean().default(false),
         mode: z.enum(['compose', 'replace', 'refuse']).default('compose'),
-        easing: z.enum(['smooth', 'linear', 'snappy', 'dramatic']).default('smooth')
+        easing: z.enum(['smooth', 'linear', 'snappy', 'dramatic']).default('smooth'),
+        project_track: z.number().int().min(0).optional()
       }).strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
     },
