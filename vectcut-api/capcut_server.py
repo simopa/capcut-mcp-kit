@@ -1788,6 +1788,7 @@ def list_clips():
 
 if __name__ == '__main__':
     kit_auth.token()  # create the token file before the first client needs it
-    import save_draft_impl
-    save_draft_impl.recover_saves()  # settle saves a previous run left halfway
+    # Not "import save_draft_impl": at module level it would replace the save_draft_impl function
+    from save_draft_impl import recover_saves
+    recover_saves()  # settle saves a previous run left halfway
     app.run(host='127.0.0.1', port=PORT)

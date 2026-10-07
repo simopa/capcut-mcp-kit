@@ -329,3 +329,52 @@ def test_an_edit_is_a_draft_change_like_any_other(env, client):
     assert timing(client, d, "SEG-1") == (0, 3, 0, 3)
     out = edit_clip(client, d, "SEG-1", trim_end=1, expected_revision=1)
     assert not out["success"] and "revision" in out["error"]
+
+
+def magnet_project():
+    c = main_track()
+    c["config"] = {"maintrack_adsorb": True}
+    c["materials"]["texts"] = [{"id": "MAT-T1", "content": json.dumps({"text": "Titolo"})}]
+    c["tracks"].append({"id": "TRK-T", "type": "text", "name": "", "segments": [
+        {"id": "SEG-T", "material_id": "MAT-T1", "target_timerange": {"start": 5_000_000, "duration": 1_000_000}}]})
+    return c
+
+
+def test_on_the_main_track_with_the_magnet_a_trim_closes_up_like_capcut(env, client):
+    root, d = opened(env, client, magnet_project())
+    out = edit_clip(client, d, "SEG-1", trim_start=1)
+    assert out["success"], out
+    assert timing(client, d, "SEG-1") == (0, 3, 1, 4)  # keeps its start, plays from 1 s of its file
+    assert timing(client, d, "SEG-2") == (3, 7, 10, 14)  # closed up
+    assert out["output"]["shifted"] == ["SEG-2"] and "moved by -1.000s" in out["output"]["notes"][0]
+    assert "1 clip(s) on other tracks did not move" in out["output"]["notes"][0]
+    assert edit_clip(client, d, "SEG-2", trim_end=1)["success"]  # the last one: nothing follows
+    assert timing(client, d, "SEG-2") == (3, 6, 10, 13)
+
+
+def test_an_empty_first_video_track_is_not_the_main_track(env, client):
+    c = magnet_project()
+    c["tracks"].insert(0, {"id": "TRK-EMPTY", "type": "video", "name": "video", "segments": []})
+    root, d = opened(env, client, c)
+    out = edit_clip(client, d, "SEG-1", trim_end=1)
+    assert out["success"] and out["output"]["shifted"] == ["SEG-2"]
+
+
+def test_on_the_main_track_with_the_magnet_a_move_is_refused(env, client):
+    root, d = opened(env, client, magnet_project())
+    out = edit_clip(client, d, "SEG-2", move_to=10)
+    assert not out["success"] and "main track magnet" in out["error"]
+    assert edit_clip(client, d, "SEG-A", move_to=1)["success"]  # other tracks move freely
+
+
+def test_a_project_saved_by_the_kit_can_be_opened_and_edited(env, client, tmp_path):
+    from test_commit_safety import png
+    d = call(client, "/create_draft", width=1920, height=1080, fps=25)["output"]["draft_id"]
+    assert call(client, "/add_image", draft_id=d, image_url=png(tmp_path / "a.png", (0, 0, 255)), start=0, end=3)["success"]
+    assert call(client, "/save_draft", draft_id=d, project_name="Fatto dal kit")["success"]
+    root = env.projects / "Fatto dal kit"
+    assert (root / "template-2.tmp").read_bytes() == (root / "draft_info.json").read_bytes()
+    opened = call(client, "/open_project", project_name="Fatto dal kit")
+    assert opened["success"], opened
+    clip = call(client, "/list_clips", draft_id=opened["output"]["draft_id"])["output"]["clips"][0]
+    assert clip["kind"] == "photo" and clip["editable"], clip["locked_reason"]

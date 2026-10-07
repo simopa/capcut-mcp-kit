@@ -87,6 +87,9 @@ vectcut-api/
   - clip_edits.py, capcut_server.py: /edit_clip trims or moves a clip of an opened
     project (ripple optional), refusing edits that would break the track.
   - pyJianYingDraft/script_file.py: import_srt crashed when no font was given.
+  - pyJianYingDraft/video_segment.py: a clip with no speed given gets the documented 1.0
+    (it was written as null). draft_profiles.py: the CapCut profile also writes the
+    timeline to template-2.tmp, so the copies of a saved project agree.
   - The upstream mcp-server/ folder (a copy of the project below) is not included.
 
 ------------------------------------------------------------------------

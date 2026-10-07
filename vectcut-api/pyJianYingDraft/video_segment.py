@@ -1,3 +1,5 @@
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: a clip with no speed given gets the documented default 1.0.
+# See NOTICE at the repository root.
 """定义视频片段及其相关类
 
 包含图像调节设置、动画效果、特效、转场等相关类
@@ -357,6 +359,8 @@ class Video_segment(Visual_segment):
         #     # 重新计算目标时间范围
         #     target_timerange = Timerange(target_timerange.start, round(source_timerange.duration / speed))
 
+        if speed is None:
+            speed = 1.0  # capcut-mcp-kit: the documented default (it was left None: "speed": null in the project)
         super().__init__(material.material_id, source_timerange, target_timerange, speed, volume, clip_settings=clip_settings)
 
         self.material_instance = deepcopy(material)

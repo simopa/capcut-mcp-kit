@@ -259,7 +259,8 @@ def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=N
     """Trim and/or move one clip, like dragging it in CapCut: trim_start cuts from its beginning
     (its start moves later; negative extends it back into the file), trim_end cuts from its end,
     move_to places it at a new start (seconds). With ripple, the clips after it on its track shift by
-    the change of its end. Every clip that changes must be editable and the result must hold on
+    the change of its end. On the main track with CapCut's main track magnet on, it behaves as
+    CapCut does: the clip keeps its start, the clips after it always close up, moves are refused. Every clip that changes must be editable and the result must hold on
     the track: no overlap, transitions still joining their clips, keyframes, fades and the source
     within the clip and the file. Records the edits in the draft; returns what changed."""
     sd = _errors()
@@ -279,14 +280,28 @@ def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=N
     if not d1 and not d2 and move_to is None:
         raise sd.SaveDraftError("Nothing to do: give trim_start, trim_end or move_to")
 
+    # CapCut keeps the clips of the main track (its first video track) back to back when the main
+    # track magnet is on: a gap there is closed when the project opens. Edits there do the same:
+    # a trim keeps the clip's start and the clips after it close up; a move would be undone.
+    # Projects made by the kit start with an empty video track: the main track is taken to be the
+    # first video track with clips (closing up is right whichever of the two CapCut picks).
+    first_video = next((tr for tr in content.get("tracks", []) if tr.get("type") == "video" and tr.get("segments")), None)
+    magnet = track is first_video and (content.get("config") or {}).get("maintrack_adsorb") is True
+    if magnet and move_to is not None:
+        raise sd.SaveDraftError(f"Clip {segment_id} was not changed: it is on the main track, where CapCut keeps the "
+                                f"clips back to back (main track magnet), so a move would be undone when the project "
+                                f"opens. Trim it instead (the clips after it follow), or move clips on other tracks")
+
     t, s = dict(seg["target_timerange"]), dict(seg["source_timerange"])
     old_end = _end(t)
-    t["start"] += d1
+    if not magnet:
+        t["start"] += d1
     t["duration"] -= d1 + d2
     s["start"] += d1
     s["duration"] -= d1 + d2  # the same change on both keeps any 1 µs rounding between them
     if move_to is not None:
         t["start"] = _us(move_to)
+    ripple = ripple or magnet
     changes = {segment_id: {"target_timerange": t, "source_timerange": s}}
 
     problems = []
@@ -355,7 +370,12 @@ def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=N
         spans = sorted((r["start"], _end(r)) for r in ranges)
         return {(e, n) for (_, e), (n, _) in zip(spans, spans[1:]) if n > e} | \
             ({(0, spans[0][0])} if spans and spans[0][0] > 0 else set())
-    if ti == 0 and track.get("type") == "video":
+    if magnet and shift and changes.keys() - {segment_id}:
+        later = [x for _, other_track, x in found if other_track is not track and _end(x["target_timerange"]) > old_end]
+        notes.append(f"Main track (CapCut's main track magnet): the clips after it moved by {shift / 1e6:+.3f}s" +
+                     (f"; {len(later)} clip(s) on other tracks did not move: titles, music or overlays over the "
+                      f"moved part may need moving too" if later else ""))
+    if track is first_video and not magnet:
         new_gaps = gaps(tr.values()) - gaps(x["target_timerange"] for x in before)
         if new_gaps:
             notes.append("The main track now has a gap at " + ", ".join(f"{g / 1e6:.3f}s ({(n - g) / 1e6:.3f}s long)"

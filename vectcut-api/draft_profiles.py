@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: canvas ratio is adjusted only when the content has a canvas_config (none was invented).
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: canvas ratio is adjusted only when the content has a canvas_config (none was invented); the CapCut profile also writes the timeline to template-2.tmp.
 # See NOTICE at the repository root.
 import json
 import os
@@ -43,6 +43,9 @@ PROFILES: Dict[str, DraftProfile] = {
         name="capcut_legacy",
         template_dir="template",
         content_file="draft_info.json",
+        # CapCut keeps template-2.tmp identical to draft_info.json; the template's own copy is stale
+        # (and a project whose copies disagree cannot be opened by capcut_open_project)
+        content_mirrors=("template-2.tmp",),
         is_capcut_env=True,
         platform=CAPCUT_PLATFORM,
     ),

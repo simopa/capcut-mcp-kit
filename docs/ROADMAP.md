@@ -144,8 +144,14 @@ time, before the additions. All save and recovery guarantees stay as they are.
    that would fall outside the clip, a transition that would no longer join or fit its clips, a
    length change with intro/outro animations, fades that no longer fit. Trial on copies of all real
    projects: every editable clip trimmed with ripple and saved, only the declared fields changed.
-4. *Proof* — synthetic tests and round trips on copies of real projects done; remaining: a visual
-   check in CapCut (gaps on the main track, transitions, keyframes after a trim).
+4. *Proof* — done: synthetic tests, round trips on copies of real projects, the real backend started
+   as its own process, and a visual check in CapCut (trims at the right points of the video).
+   Learned there: CapCut closes gaps on the main track (`maintrack_adsorb`), so on that track a
+   trim keeps the clip's start and the clips after it close up, and moves are refused; titles on
+   other tracks do not follow (the reply says so).
+
+To do next: projects made by the kit put their clips on a second video track and leave CapCut's
+main track (the first one, with the cover) empty; new projects should use the main track.
 
 Seen in the projects analysed (read-only copies, 10 projects, 379 clips): video/photo/audio clips
 carry six kinds of material references (speeds, canvases, placeholder infos, sound channel

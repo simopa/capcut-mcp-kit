@@ -148,7 +148,10 @@ Conventions:
   extends), `move_to` sets its start, `ripple` shifts the clips after it on the same track. An edit
   is refused, with the reason, if the clip would overlap another, go past its file, leave keyframes
   outside it, break a transition or no longer fit its fades, or change length with intro/outro
-  animations. Without `ripple` a trim leaves a gap, and the reply says so for the main track. Edits
+  animations. On CapCut's main track with its magnet on (the default) the kit does what CapCut does:
+  a trim keeps the clip's start and the clips after it close up, a move is refused, and the reply
+  says when clips on other tracks (titles, music) did not follow. Elsewhere, without `ripple` a trim
+  leaves a gap. Edits
   are recorded in the draft and written at save time, after a check that the saved timeline differs
   from the original only in the fields of the clips that were edited.
 - **Saving** again under the same `project_name` replaces the project that draft saved before; the
@@ -176,6 +179,8 @@ Conventions:
   are kept 7 days; a retry after that is refused, not applied again. Replies report the draft's
   `revision`; `capcut_save_draft` accepts `expected_revision` to save only if no other client changed
   the draft meanwhile.
+- **Another projects folder:** `CAPCUT_PROJECTS_DIR` points the kit at another folder of CapCut
+  projects instead of CapCut's own (the tests use it to stay away from real projects).
 - **Drafts in progress** are kept in `~/Library/Application Support/capcut-mcp-kit/drafts.sqlite3`
   (set `CAPCUT_MCP_STATE_DIR` to move it; folder and files readable only by you), so they survive a
   backend restart. A change runs under a lock shared by every backend process, on the draft as last

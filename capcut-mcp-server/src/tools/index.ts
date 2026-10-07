@@ -438,8 +438,8 @@ This tool finalizes the draft and writes it directly into the local CapCut draft
 (macOS: ~/Movies/CapCut/User Data/Projects/com.lveditor.draft), copying local media alongside it.
 CapCut only rescans its projects list on launch, so the user must restart CapCut to see the new project.
 
-For a draft from capcut_open_project, leave project_name out: the additions are written into that
-project, existing clips untouched.
+For a draft from capcut_open_project, leave project_name out: the additions and the clip edits
+(capcut_edit_clip) are written into that project; nothing else in it changes.
 
 Saving again under the same project_name replaces the project this draft saved before; the old folder is
 moved to ~/Movies/CapCut MCP Backups, never deleted. Replacing a project is refused while CapCut is open
@@ -589,9 +589,10 @@ those tools only accept names exactly as returned here.`,
       description: `Open a project made in CapCut (or saved earlier) to add to it, and get a draft_id for it.
 
 Use the draft_id with the other capcut_add_* tools, then capcut_save_draft (without project_name).
-Additions go on new tracks above the existing ones; clips already in the project are never changed,
-moved or removed, and the existing tracks cannot be edited through this draft. The result lists the
-existing tracks with their end times, to place new items after or over them.
+Additions go on new tracks above the existing ones. Clips already in the project change only through
+capcut_edit_clip (trim, move; see capcut_list_clips for which can be edited); nothing else is changed,
+moved or removed. The result lists the existing tracks with their end times, to place new items after
+or over them.
 
 Saving refuses if CapCut is open (quit it first) or if the project was changed in CapCut after it was
 opened (open it again). Before writing, the whole project folder is copied to ~/Movies/CapCut MCP Backups.`,

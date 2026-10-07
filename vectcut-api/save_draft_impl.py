@@ -48,7 +48,12 @@ def build_asset_path(draft_folder: str, draft_id: str, asset_type: str, material
     return build_draft_asset_path(draft_folder, draft_id, asset_type, material_name)
 
 def find_capcut_projects_dir():
-    """Return the local CapCut/Jianying desktop drafts directory, or None if not found."""
+    """Return the local CapCut/Jianying desktop drafts directory, or None if not found.
+    CAPCUT_PROJECTS_DIR, if set, is used instead (another folder of projects, or tests)."""
+    configured = os.environ.get("CAPCUT_PROJECTS_DIR")
+    if configured:
+        configured = os.path.expanduser(configured)
+        return configured if os.path.isdir(configured) else None
     if os.name == 'nt':
         candidates = [os.path.expandvars(r"%LOCALAPPDATA%\CapCut\User Data\Projects\com.lveditor.draft")]
     else:
