@@ -55,9 +55,12 @@ scattante (snappy) o drammatico (dramatic).
 
 Si può aggiungere a un progetto fatto in CapCut: chiedi per esempio "apri il progetto *Intervista*
 e aggiungi un titolo nei primi 3 secondi". `capcut_list_projects` mostra i progetti,
-`capcut_open_project` lo apre. Le aggiunte vanno su tracce nuove sopra quelle esistenti: le clip
-che ci sono già non vengono mai modificate, spostate o tolte. Al salvataggio il kit riscrive la
-timeline originale identica più le aggiunte, in tutte le copie che CapCut tiene, dopo aver fatto un
+`capcut_open_project` lo apre. Le aggiunte vanno su tracce nuove sopra quelle esistenti. Le clip
+che ci sono già cambiano solo se lo chiedi: `capcut_list_clips` dice quali si possono modificare,
+`capcut_edit_clip` le accorcia o le sposta (con `ripple_all` le seguono anche titoli, musica e ciò
+che hai aggiunto dopo il taglio), movimenti di camera e keyframe si applicano anche a loro; nessuna
+viene mai tolta. Al salvataggio il kit riscrive la timeline originale identica, salvo i campi delle
+clip modificate, più le aggiunte, in tutte le copie che CapCut tiene, dopo aver fatto un
 backup dell'intera cartella del progetto in `~/Movies/CapCut MCP Backups`. **Chiudi CapCut prima di
 salvare** (se il kit non riesce a capire se è aperto, non salva); se nel frattempo hai modificato il
 progetto in CapCut, va riaperto. Se il salvataggio si interrompe a metà, alla chiamata successiva su

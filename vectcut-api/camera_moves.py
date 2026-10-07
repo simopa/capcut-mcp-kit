@@ -9,8 +9,9 @@ stays continuous across cuts. Values are relative to the clip's framing at each 
 multiplies it, offsets add to it. With mode="compose" (default) that framing includes keyframes
 already on the clip (an earlier move, a manual keyframe), so moves stack; mode="replace" starts from
 the clip's static framing and replaces keyframes inside the range, keeping the earlier animation's
-values at the range's edges so it plays unchanged outside; mode="refuse" errors if the range
-already has keyframes. Keyframes outside the range are never touched.
+values at the range's edges so it plays unchanged outside; mode="refuse" errors if the clip is
+already animated in the range (a keyframe inside it, or an animation passing through it).
+Keyframes outside the range are never touched.
 
 Very short ranges compress a move's shape to fit, and every move ends on the starting framing.
 
@@ -214,12 +215,17 @@ def _apply_keyframe_move(overlaps, curves, mode: str, s_us: int):
     """Write a move's curves on the clips it overlaps: [(segment, a, b)] with a/b the overlap as offsets
     from each clip's start."""
     if mode == "refuse":
+        # Refused if the clip is animated anywhere in the range: a keyframe inside it, or a curve
+        # between keyframes outside it that crosses it (its value at the edges is not the static one;
+        # with no keyframe inside, the curve there is a straight line between those two values)
         for seg, a, b in overlaps:
             for prop in curves:
-                for kf_prop, _, _ in _targets(seg, prop):
+                for kf_prop, static, _ in _targets(seg, prop):
                     kf_list = _find(seg, kf_prop)
-                    if kf_list and any(a <= k.time_offset <= b for k in kf_list.keyframes):
-                        raise ValueError(f"The range already has {kf_prop.name} keyframes (mode='refuse'); "
+                    if kf_list and kf_list.keyframes and (
+                            any(a <= k.time_offset <= b for k in kf_list.keyframes) or
+                            any(abs(_value_at(kf_list, edge, static) - static) > 1e-9 for edge in (a, b))):
+                        raise ValueError(f"The range already has {kf_prop.name} animation (mode='refuse'); "
                                          f"use mode='compose' to stack or 'replace' to redo")
 
     edge_us = int(EDGE * 1e6)
@@ -273,24 +279,28 @@ class _JsonClip:
         self.common_keyframes = []
         for raw in seg.get("common_keyframes") or []:
             kl = Keyframe_list(Keyframe_property(raw["property_type"]))  # ValueError: a property the kit does not know
-            self._lists[id(kl)] = raw
             for k in raw.get("keyframe_list") or []:
                 kf = Keyframe(k["time_offset"], k["values"][0])
                 kf.values = list(k["values"])
                 self._keyframes[id(kf)] = (k, k["time_offset"], list(k["values"]))
                 kl.keyframes.append(kf)
+            self._lists[id(kl)] = (raw, list(kl.keyframes))
             self.common_keyframes.append(kl)
 
     def export(self) -> list:
         out = []
         for kl in self.common_keyframes:
-            entries = []
+            entries, same_list = [], True
             for kf in kl.keyframes:
                 raw = self._keyframes.get(id(kf))
                 same = raw is not None and raw[1] == kf.time_offset and raw[2] == kf.values
                 entries.append(raw[0] if same else kf.export_json())
-            raw = self._lists.get(id(kl))
-            out.append({**(raw if raw is not None else kl.export_json()), "keyframe_list": entries})
+                same_list = same_list and same
+            raw, keyframes = self._lists.get(id(kl), (None, None))
+            if raw is not None and same_list and kl.keyframes == keyframes:
+                out.append(raw)  # a list the move did not touch: exactly as it was, in whatever form
+            else:
+                out.append({**(raw if raw is not None else kl.export_json()), "keyframe_list": entries})
         return out
 
 

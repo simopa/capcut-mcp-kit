@@ -150,7 +150,8 @@ Conventions:
   text clips, whose every reference the kit understands and which it can rewrite unchanged. `capcut_edit_clip` trims
   or moves one like dragging it in CapCut: `trim_start` / `trim_end` cut from either end (negative
   extends), `move_to` sets its start, `ripple` shifts the clips after it on the same track,
-  `ripple_all` on every track (titles, music and overlays after the cut stay in step). An edit
+  `ripple_all` on every track (titles, music and overlays after the cut stay in step, those the
+  draft added included). An edit
   is refused, with the reason, if the clip would overlap another, go past its file, leave keyframes
   outside it, break a transition or no longer fit its fades, or change length with intro/outro
   animations. On CapCut's main track with its magnet on (the default) the kit does what CapCut does:
@@ -161,7 +162,10 @@ Conventions:
   from the original only in the fields of the clips that were edited.
   On an opened project, `capcut_add_camera_move` and `capcut_add_keyframe` also work on the clips
   already there (its main video track, or `project_track` from `capcut_list_clips`): the keyframes the
-  move does not touch, and every field the kit does not know, are kept exactly as they were.
+  move does not touch, and every field the kit does not know, are kept exactly as they were. A clip
+  whose x and y scale are locked together takes only `uniform_scale`; `mode: "refuse"` refuses a
+  range the clip is already animated in, also by keyframes outside it. Keyframe values must be finite
+  numbers within each property's range, and no timeline is ever written with NaN or Infinity.
 - **Saving** again under the same `project_name` replaces the project that draft saved before; the
   old folder is moved to `~/Movies/CapCut MCP Backups` (set `CAPCUT_MCP_BACKUP_DIR` to change it),
   never deleted, and backups are not pruned. A project the draft did not save, or that was changed in

@@ -1,6 +1,7 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: keyframes are validated against the track's clips before any is queued, so a bad one is an error and nothing is half-applied.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: keyframes are validated against the track's clips before any is queued, so a bad one is an error and nothing is half-applied; values are checked like those for existing clips (finite, in range).
 # See NOTICE at the repository root.
 import pyJianYingDraft as draft
+from clip_edits import keyframe_value
 from pyJianYingDraft import exceptions
 from create_draft import get_or_create_draft
 from typing import Optional, Dict, List
@@ -129,44 +130,11 @@ def _validate_keyframe(track, property_type: str, time: float, value: str):
     except:
         raise Exception(f"Unsupported keyframe property type: {property_type}")
         
-    # Parse value based on property type
+    # The value, whatever its form ("50%", "45deg", "+0.2"), must be a finite number in the property's range
     try:
-        if property_type in ['position_x', 'position_y']:
-            # Handle position, range [0,1]
-            float_value = float(value)
-            if not -10 <= float_value <= 10:
-                raise ValueError(f"Value for {property_type} must be between -10 and 10")
-        elif property_type == 'rotation':
-            # Handle rotation angle
-            if value.endswith('deg'):
-                float_value = float(value[:-3])
-            else:
-                float_value = float(value)
-        elif property_type == 'alpha':
-            # Handle opacity
-            if value.endswith('%'):
-                float_value = float(value[:-1]) / 100
-            else:
-                float_value = float(value)
-        elif property_type == 'volume':
-            # Handle volume
-            if value.endswith('%'):
-                float_value = float(value[:-1]) / 100
-            else:
-                float_value = float(value)
-        elif property_type in ['saturation', 'contrast', 'brightness']:
-            # Handle saturation, contrast, brightness
-            if value.startswith('+'):
-                float_value = float(value[1:])
-            elif value.startswith('-'):
-                float_value = -float(value[1:])
-            else:
-                float_value = float(value)
-        else:
-            # Other properties directly convert to float
-            float_value = float(value)
-    except ValueError:
-        raise Exception(f"Invalid value format: {value}")
+        keyframe_value(property_type, value)
+    except ValueError as e:
+        raise Exception(f"Invalid value {value}: {e}")
 
     target_time = int(float(time) * 1000000)
     if not any(seg.target_timerange.start <= target_time <= seg.target_timerange.end for seg in track.segments):

@@ -159,6 +159,13 @@ track, so titles and music stay in step.
 New projects now put their clips on CapCut's main track (no empty track before it), and a save
 reports gaps there that CapCut's magnet would close.
 
+After the sixth external review: `ripple_all` moves the draft's own additions too (pending and
+already saved); `mode: "refuse"` also refuses an animation passing through the range; one scale
+axis on a clip with uniform scale is refused (the kit does not switch the clip's scale mode);
+keyframe values must be finite and in range, and timelines are written as strict JSON; the save
+check derives the project duration instead of setting it aside; keyframe lists a move does not
+touch are written back as they were; clips past the first 500 can be edited.
+
 Seen in the projects analysed (read-only copies, 10 projects, 379 clips): video/photo/audio clips
 carry six kinds of material references (speeds, canvases, placeholder infos, sound channel
 mappings, colors, vocal separations), plus transitions and animations on a few; keyframes are

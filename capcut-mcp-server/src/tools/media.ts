@@ -386,7 +386,8 @@ in CapCut (ids from capcut_list_clips; only clips listed as editable). Seconds:
   - trim_end: cut from its end; negative extends it
   - move_to: new start on the timeline
   - ripple: the clips after it on the same track shift by the same amount (closes or opens the gap)
-  - ripple_all: the clips after it on every track shift too (titles, music, overlays stay in step)
+  - ripple_all: the clips after it on every track shift too (titles, music, overlays stay in step),
+    those this draft added included
 On CapCut's main track (magnet on) a trim keeps the clip's start and the clips after it close up, and
 moves are refused. Video, photo, audio and text clips. Refused, with the reason, if a clip would
 overlap another, go past its file, lose keyframes, fades or a transition, or change length with
@@ -436,8 +437,8 @@ Effect moves add a CapCut effect on the "camera_fx" track:
 ${CAMERA_MOVES.effects.map(([n, d]) => `  - ${n}: ${d}`).join('\n')}
 
 Moves stack on keyframes already on the clips (mode "compose"); to redo a move over the same range use
-mode "replace", or "refuse" to error if the range already has keyframes. Keyframes outside the range
-are never changed. Short ranges (min 0.1 s) squeeze the move's shape; every move ends on the
+mode "replace", or "refuse" to error if the clip is already animated in the range (a keyframe in it,
+or an animation passing through it). Keyframes outside the range are never changed. Short ranges (min 0.1 s) squeeze the move's shape; every move ends on the
 starting framing. easing shapes keyframe moves: smooth (default), linear, snappy (fast start, soft
 landing), dramatic (slow-fast-slow). For effect moves, intensity scales the effect's strength.
 

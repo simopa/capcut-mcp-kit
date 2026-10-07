@@ -1783,7 +1783,8 @@ def edit_clip():
                              "of its own to edit")
         return {"draft_id": d["draft_id"], **clip_edits.edit_timing(
             base, d.get("clip_id") or "", trim_start=d.get("trim_start") or 0, trim_end=d.get("trim_end") or 0,
-            move_to=d.get("move_to"), ripple=d.get("ripple") is True, ripple_all=d.get("ripple_all") is True)}
+            move_to=d.get("move_to"), ripple=d.get("ripple") is True, ripple_all=d.get("ripple_all") is True,
+            additions=script)}
     return _media_route(run)
 
 

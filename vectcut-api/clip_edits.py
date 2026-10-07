@@ -22,6 +22,7 @@ Anything else is listed with the reason it is locked.
 
 import copy
 import json
+import math
 
 # Materials a timed media clip may refer to (extra_material_refs), as seen in CapCut 9.1 projects
 KNOWN_REFS = {"speeds", "placeholder_infos", "canvases", "sound_channel_mappings", "material_colors",
@@ -140,9 +141,22 @@ def clip_verdict(seg: dict, kind: str, mats: dict, dups: set):
 
 # --- Edit log -------------------------------------------------------------------------------------
 
+def moves_clips(edits) -> bool:
+    """Whether the edits change where clips are on the timeline (not only their keyframes)."""
+    return any("target_timerange" in edit["fields"] for edit in edits or ())
+
+
+def clips_end(tracks) -> int:
+    """Where the last clip of these tracks ends."""
+    return max((seg["target_timerange"]["start"] + seg["target_timerange"]["duration"]
+                for track in tracks for seg in track.get("segments") or []
+                if isinstance(seg.get("target_timerange"), dict)), default=0)
+
+
 def apply_edits(content: dict, edits: list) -> dict:
     """A copy of content with the edits applied in order. Each edit must find every field it
-    changes at the value it expects; the project duration follows the clips."""
+    changes at the value it expects; when clips move or change length, the project duration
+    follows them (keyframes alone leave it as it is)."""
     sd = _errors()
     out = copy.deepcopy(content)
     if not edits:
@@ -158,8 +172,8 @@ def apply_edits(content: dict, edits: list) -> dict:
             if field not in seg or seg[field] != change["old"]:
                 raise sd.SaveDraftError(f"Clip {sid} changed since it was edited ({field}): nothing was written")
             seg[field] = copy.deepcopy(change["new"])
-    out["duration"] = max((seg["target_timerange"]["start"] + seg["target_timerange"]["duration"]
-                           for _, _, seg in found if isinstance(seg.get("target_timerange"), dict)), default=0)
+    if moves_clips(edits):
+        out["duration"] = clips_end(out.get("tracks", []))
     return out
 
 
@@ -221,6 +235,22 @@ def _label(seg: dict, mats: dict) -> str:
     return path.replace("\\", "/").rsplit("/", 1)[-1]
 
 
+def _entry(ti: int, track: dict, seg: dict, kind: str, reason, mats: dict) -> dict:
+    """What the inventory shows of one clip."""
+    t, s = seg.get("target_timerange") or {}, seg.get("source_timerange") or {}
+    refs = [mats.get(r, (None,))[0] for r in seg.get("extra_material_refs") or []]
+    clip = {"id": seg.get("id"), "track": ti, "track_type": track.get("type"), "track_name": track.get("name") or "",
+            "kind": kind, "name": _label(seg, mats),
+            "start": round(t.get("start", 0) / 1e6, 3), "end": round((t.get("start", 0) + t.get("duration", 0)) / 1e6, 3),
+            "keyframes": sorted({kl.get("property_type") for kl in seg.get("common_keyframes") or []}),
+            "transition": "transitions" in refs, "animation": "material_animations" in refs,
+            "editable": reason is None, "locked_reason": reason}
+    if s:
+        clip["source_start"] = round(s.get("start", 0) / 1e6, 3)
+        clip["source_end"] = round((s.get("start", 0) + s.get("duration", 0)) / 1e6, 3)
+    return clip
+
+
 def inventory(base: dict, kind: str = None, editable_only: bool = False, offset: int = 0, limit: int = 100) -> dict:
     """The project's own clips (with the draft's edits applied), in track order, each with whether
     it can be edited and, if not, why."""
@@ -235,23 +265,22 @@ def inventory(base: dict, kind: str = None, editable_only: bool = False, offset:
         reason = clip_verdict(seg, k, mats, dups)
         if editable_only and reason:
             continue
-        t, s = seg.get("target_timerange") or {}, seg.get("source_timerange") or {}
-        refs = [mats.get(r, (None,))[0] for r in seg.get("extra_material_refs") or []]
-        clip = {"id": seg.get("id"), "track": ti, "track_type": track.get("type"), "track_name": track.get("name") or "",
-                "kind": k, "name": _label(seg, mats),
-                "start": round(t.get("start", 0) / 1e6, 3), "end": round((t.get("start", 0) + t.get("duration", 0)) / 1e6, 3),
-                "keyframes": sorted({kl.get("property_type") for kl in seg.get("common_keyframes") or []}),
-                "transition": "transitions" in refs, "animation": "material_animations" in refs,
-                "editable": reason is None, "locked_reason": reason}
-        if s:
-            clip["source_start"] = round(s.get("start", 0) / 1e6, 3)
-            clip["source_end"] = round((s.get("start", 0) + s.get("duration", 0)) / 1e6, 3)
-        clips.append(clip)
+        clips.append(_entry(ti, track, seg, k, reason, mats))
     offset, limit = max(0, int(offset)), max(1, min(int(limit), 500))
     page = clips[offset:offset + limit]
     return {"project_name": base["name"], "total": len(clips), "offset": offset, "clips": page,
             "next_offset": offset + limit if offset + limit < len(clips) else None,
             "edits": len(base.get("edits") or [])}
+
+
+def clip_entry(base: dict, segment_id: str) -> dict:
+    """The inventory's entry for one clip, wherever it is in the project."""
+    content = current_content(base)
+    mats = _materials(content)
+    found, dups = _segments(content)
+    ti, track, seg = next((ti, track, seg) for ti, track, seg in found if seg.get("id") == segment_id)
+    k = _kind(seg, mats)
+    return _entry(ti, track, seg, k, clip_verdict(seg, k, mats, dups), mats)
 
 
 # --- Timing edits ---------------------------------------------------------------------------------
@@ -265,16 +294,17 @@ def _end(r: dict) -> int:
 
 
 def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=None, ripple=False,
-                ripple_all=False) -> dict:
+                ripple_all=False, additions=None) -> dict:
     """Trim and/or move one clip, like dragging it in CapCut: trim_start cuts from its beginning
     (its start moves later; negative extends it back), trim_end cuts from its end, move_to places it
     at a new start (seconds). With ripple, the clips after it on its track shift by the change of
     its end; with ripple_all, those on the other tracks too (titles, music, overlays that start
-    after it), so they stay in step. On the main track with CapCut's main track magnet on, it behaves
-    as CapCut does: the clip keeps its start, the clips after it always close up, moves are refused.
-    Every clip that changes must be editable and every track it touches must hold together: no
-    overlap, transitions still joining their clips, keyframes, fades and the source within the clip
-    and its file. Records the edits in the draft; returns what changed."""
+    after it), so they stay in step, including what the draft added (additions: the draft's
+    script, whose clips are moved in place). On the main track with CapCut's main track magnet on,
+    it behaves as CapCut does: the clip keeps its start, the clips after it always close up, moves
+    are refused. Every clip that changes must be editable and every track it touches must hold
+    together: no overlap, transitions still joining their clips, keyframes, fades and the source
+    within the clip and its file. Records the edits in the draft; returns what changed."""
     sd = _errors()
     content = current_content(base)
     mats = _materials(content)
@@ -362,6 +392,26 @@ def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=N
             elif other_track is not track and _end(o) > old_end and o["start"] < old_end:
                 spanning.append(other.get("id"))
 
+    # What the draft added, on its own tracks, as it will be written: with ripple_all it follows
+    # too. Keyframes queued for its clips (at times on the timeline) are first bound to their clips.
+    added_tracks = [tr for tr in (additions.tracks.values() if additions is not None else ()) if tr.segments]
+    added_later = [x for tr in added_tracks for x in tr.segments if x.target_timerange.start >= old_end]
+    added_spanning = [tr.name for tr in added_tracks for x in tr.segments
+                      if x.target_timerange.start < old_end < x.target_timerange.end]
+    if ripple_all and shift and added_later:
+        moving = {id(x) for x in added_later}
+        for tr in added_tracks:
+            if not any(id(x) in moving for x in tr.segments):
+                continue
+            try:
+                tr.process_pending_keyframes()
+            except ValueError as e:
+                problems.append(f"the keyframes added on track {tr.name} could not be placed first ({e})")
+            spans = sorted((x.target_timerange.start + (shift if id(x) in moving else 0), x.target_timerange.duration)
+                           for x in tr.segments)
+            if any(s0 + d0 > s1 for (s0, d0), (s1, _) in zip(spans, spans[1:])):
+                problems.append(f"a clip added by this draft on track {tr.name} would overlap another one there")
+
     # Every track touched, as it would be: no overlap, transitions still joining their clips and fitting
     touched = {id(tr): tr for _, tr, x in found if x.get("id") in changes}
     after_ranges = {}
@@ -391,6 +441,12 @@ def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=N
 
     for sid, fields in changes.items():
         record_edit(base, sid, fields)
+    moved_added = 0
+    if ripple_all and shift and added_later:
+        for x in added_later:
+            x.target_timerange.start += shift
+        moved_added = len(added_later)
+        additions.duration = max(x.target_timerange.end for tr in added_tracks for x in tr.segments)
     notes = []
 
     def gaps(ranges):
@@ -399,19 +455,24 @@ def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=N
             ({(0, spans[0][0])} if spans and spans[0][0] > 0 else set())
     moved_elsewhere = [sid for sid in changes if sid != segment_id and
                        next(tr for _, tr, x in found if x.get("id") == sid) is not track]
-    if shift and ripple and changes.keys() - {segment_id}:
+    if shift and ripple and (changes.keys() - {segment_id} or moved_added):
         where = "Main track (CapCut's main track magnet)" if magnet else "Ripple"
         later = [x.get("id") for _, other_track, x in found
                  if other_track is not track and x.get("id") not in changes and x["target_timerange"]["start"] >= old_end]
         note = f"{where}: the clips after it moved by {shift / 1e6:+.3f}s"
         if moved_elsewhere:
             note += f", {len(moved_elsewhere)} of them on other tracks"
-        elif later:
-            note += (f"; {len(later)} clip(s) on other tracks did not move: titles, music or overlays over the moved "
-                     f"part may need moving too (ripple_all moves them)")
+        elif later or (added_later and not moved_added):
+            note += (f"; {len(later) + len(added_later)} clip(s) on other tracks did not move: titles, music or "
+                     f"overlays over the moved part may need moving too (ripple_all moves them)")
         notes.append(note)
+    if moved_added:
+        notes.append(f"{moved_added} clip(s) added by this draft moved too")
     if spanning:
         notes.append(f"Not moved, because they span the cut: {', '.join(spanning)}")
+    if ripple_all and shift and added_spanning:
+        notes.append(f"Not moved, because they span the cut: {len(added_spanning)} clip(s) added by this draft "
+                     f"(track(s) {', '.join(dict.fromkeys(added_spanning))})")
     if track is first_video and not magnet:
         before, rng = after_ranges[id(track)]
         new_gaps = gaps(rng.values()) - gaps(x["target_timerange"] for x in before)
@@ -419,7 +480,7 @@ def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=N
             notes.append("The main track now has a gap at " + ", ".join(f"{g / 1e6:.3f}s ({(n - g) / 1e6:.3f}s long)"
                                                                         for g, n in sorted(new_gaps)) +
                          ": use ripple to close it, or fill it")
-    return {"clip": next(c for c in inventory(base, limit=500)["clips"] if c["id"] == segment_id),
+    return {"clip": clip_entry(base, segment_id),
             "shifted": [sid for sid in changes if sid != segment_id], "notes": notes}
 
 
@@ -431,20 +492,28 @@ KEYFRAME_PROPERTIES = {"position_x": "KFTypePositionX", "position_y": "KFTypePos
                        "brightness": "KFTypeBrightness", "volume": "KFTypeVolume"}
 
 
+KEYFRAME_RANGES = {"position_x": (-10, 10), "position_y": (-10, 10), "alpha": (0, 1), "volume": (0, 1),
+                   "saturation": (-1, 1), "contrast": (-1, 1), "brightness": (-1, 1)}
+
+
 def keyframe_value(prop: str, value) -> float:
-    """A keyframe value as capcut_add_keyframe takes it ("50%", "45deg", "+0.2", "1.5") as a number."""
+    """A keyframe value as capcut_add_keyframe takes it ("50%", "45deg", "+0.2", "1.5") as a number,
+    whatever the form: finite and within the property's range."""
     v = str(value).strip()
     if prop in ("alpha", "volume") and v.endswith("%"):
-        return float(v[:-1]) / 100
-    if prop == "rotation" and v.endswith("deg"):
-        return float(v[:-3])
-    number = float(v)
-    if prop in ("position_x", "position_y") and not -10 <= number <= 10:
-        raise ValueError(f"{prop} must be between -10 and 10")
+        number = float(v[:-1]) / 100
+    elif prop == "rotation" and v.endswith("deg"):
+        number = float(v[:-3])
+    else:
+        number = float(v)
+    if not math.isfinite(number):
+        raise ValueError(f"{prop} must be a finite number, not {value}")
     if prop in ("scale_x", "scale_y", "uniform_scale") and number <= 0:
         raise ValueError(f"{prop} must be above 0")
-    if prop == "alpha" and not 0 <= number <= 1:
-        raise ValueError("alpha must be between 0 and 1 (or 0%-100%)")
+    low, high = KEYFRAME_RANGES.get(prop, (-math.inf, math.inf))
+    if not low <= number <= high:
+        percent = " (or 0%-100%)" if prop in ("alpha", "volume") else ""
+        raise ValueError(f"{prop} must be between {low} and {high}{percent}")
     return number
 
 
@@ -494,6 +563,11 @@ def add_keyframes(base: dict, project_track, property_types: list, times: list, 
         clip = clips[seg["id"]]
         if prop == "uniform_scale" and not clip.uniform_scale:
             raise ValueError(f"Clip {seg['id']} has separate x/y scale: use scale_x and scale_y")
+        # Uniform scale is kept in the scale_x list and drives both axes: one axis alone would need
+        # the clip switched to separate x/y scale, which the kit does not do on an existing clip
+        if prop in ("scale_x", "scale_y") and clip.uniform_scale:
+            raise ValueError(f"Clip {seg['id']} has a uniform scale (x and y locked together): use uniform_scale, "
+                             f"or unlock its scale in CapCut first to animate one axis")
         kf_prop = Keyframe_property(KEYFRAME_PROPERTIES[prop])
         kl = next((k for k in clip.common_keyframes if k.keyframe_property == kf_prop), None)
         if kl is None:

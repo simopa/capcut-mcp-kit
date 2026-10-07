@@ -49,11 +49,15 @@ CONTENT_FILE = "draft_info.json"
 MIRROR_FILE = "template-2.tmp"
 
 SERIALIZERS = {
-    # CapCut's own format first
-    "compact": lambda d: json.dumps(d, ensure_ascii=False, separators=(",", ":")),
-    "indent4": lambda d: json.dumps(d, ensure_ascii=False, indent=4),
-    "indent2": lambda d: json.dumps(d, ensure_ascii=False, indent=2),
+    # CapCut's own format first; NaN and Infinity are not JSON: a timeline holding one is never written
+    "compact": lambda d: json.dumps(d, ensure_ascii=False, separators=(",", ":"), allow_nan=False),
+    "indent4": lambda d: json.dumps(d, ensure_ascii=False, indent=4, allow_nan=False),
+    "indent2": lambda d: json.dumps(d, ensure_ascii=False, indent=2, allow_nan=False),
 }
+
+
+def _not_json(constant):
+    raise ValueError(f"{constant} is not a JSON value")
 
 
 def _sha(data: bytes) -> str:
@@ -124,7 +128,7 @@ def round_trip(raw: bytes):
     """Parse the timeline and find how to write it back. Returns (content, serializer name, exact)."""
     sd = _errors()
     try:
-        content = json.loads(raw)
+        content = json.loads(raw, parse_constant=_not_json)
     except ValueError as e:
         raise sd.SaveDraftError(f"The project timeline is not valid JSON: {e}")
     if not (isinstance(content, dict) and isinstance(content.get("tracks"), list)
@@ -203,16 +207,24 @@ def merge(original: dict, additions: dict):
             added_ids.add(item.get("id"))
     new_tracks = [t for t in additions.get("tracks", []) if t.get("segments")]
     merged["tracks"].extend(new_tracks)
-    merged["duration"] = max(original.get("duration") or 0, additions.get("duration") or 0)
+    merged["duration"] = max(original.get("duration") or 0, clip_edits.clips_end(new_tracks))
     return merged, added_ids, len(new_tracks)
 
 
 def verify_untouched(original: dict, merged: dict, added_ids: set, added_tracks: int, edits=()):
     """Removing the additions from merged and putting back every value the edits declare they
-    replace must give back the original exactly."""
+    replace must give back the original exactly. The project duration, the one value that changes
+    besides them, must be the one they imply: where the last clip ends if the edits move clips,
+    else the original's, and in any case at least where the last addition ends."""
     sd = _errors()
     check = copy.deepcopy(merged)
+    added = check["tracks"][len(check["tracks"]) - added_tracks:] if added_tracks else []
     check["tracks"] = check["tracks"][:len(check["tracks"]) - added_tracks]
+    own = clip_edits.clips_end(check["tracks"]) if clip_edits.moves_clips(edits) else original.get("duration") or 0
+    expected = max(own, clip_edits.clips_end(added))
+    if merged.get("duration") != expected:
+        raise sd.SaveDraftError(f"Internal check failed: the project would last {(merged.get('duration') or 0) / 1e6:.3f}s "
+                                f"instead of {expected / 1e6:.3f}s; nothing was written")
     for key in list(check["materials"]):
         items = check["materials"][key]
         if isinstance(items, list):
