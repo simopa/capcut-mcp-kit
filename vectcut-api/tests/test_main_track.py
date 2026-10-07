@@ -1,5 +1,6 @@
 # Added in capcut-mcp-kit (2026): new projects put their clips on CapCut's main track (the first
-# video track, bottom layer) and warn when that track has gaps CapCut's magnet would close.
+# video track, bottom layer), warn when that track has gaps CapCut's magnet would close, and each has
+# a timeline id of its own.
 # See NOTICE at the repository root.
 import json
 
@@ -54,3 +55,41 @@ def test_an_older_draft_with_an_empty_default_track_saves_without_it(env, client
                 track_name="video_main")["success"]
     assert call(client, "/save_draft", draft_id=d, project_name="Vecchio")["success"]
     assert [t["name"] for t in saved_tracks(env, "Vecchio")] == ["video_main"]
+
+
+# --- Timeline ids --------------------------------------------------------------------------------
+
+def timeline_id(env, name):
+    return json.loads((env.projects / name / "draft_info.json").read_text())["id"]
+
+
+def new_project(env, client, name, color=(255, 0, 0)):
+    d = call(client, "/create_draft", width=1920, height=1080)["output"]["draft_id"]
+    assert call(client, "/add_image", draft_id=d, image_url=png(env.tmp / f"{name}.png", color), start=0, end=2,
+                track_name="video_main")["success"]
+    assert call(client, "/save_draft", draft_id=d, project_name=name)["success"]
+    return d
+
+
+def test_every_new_project_has_a_timeline_id_of_its_own(env, client):
+    from pyJianYingDraft import Script_file
+    d = new_project(env, client, "Uno")
+    new_project(env, client, "Due", (0, 255, 0))
+    first, second = timeline_id(env, "Uno"), timeline_id(env, "Due")
+    assert first != second and Script_file.TEMPLATE_TIMELINE_ID not in (first, second)
+    assert call(client, "/save_draft", draft_id=d, project_name="Uno")["success"]  # saved again: the same timeline
+    assert timeline_id(env, "Uno") == first
+
+
+def test_a_draft_made_with_the_shared_id_gets_its_own_at_save(env, client):
+    from pyJianYingDraft import Script_file
+    d = call(client, "/create_draft", width=1920, height=1080)["output"]["draft_id"]
+    with draft_store.draft_lock(d):  # as a draft made by an earlier version of the kit
+        rev, script = draft_store._current(d)
+        working = draft_store._copy(script)
+        working.content["id"] = Script_file.TEMPLATE_TIMELINE_ID
+        draft_store._commit_change(d, rev, working, [])
+    assert call(client, "/add_image", draft_id=d, image_url=png(env.tmp / "a.png", (255, 0, 0)), start=0, end=2,
+                track_name="video_main")["success"]
+    assert call(client, "/save_draft", draft_id=d, project_name="Vecchio")["success"]
+    assert timeline_id(env, "Vecchio") != Script_file.TEMPLATE_TIMELINE_ID

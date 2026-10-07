@@ -1,8 +1,9 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: import_srt no longer crashes when no font is given; add_segment can move an overlapping item to a free track (placement.py); empty tracks are not exported and video_main is the first video track; NaN and Infinity are never written.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: import_srt no longer crashes when no font is given; add_segment can move an overlapping item to a free track (placement.py); empty tracks are not exported and video_main is the first video track; NaN and Infinity are never written; each draft has its own timeline id.
 # See NOTICE at the repository root.
 import os
 import json
 import math
+import uuid
 from copy import deepcopy
 
 from typing import Optional, Literal, Union, overload
@@ -187,6 +188,8 @@ class Script_file:
     """导入的轨道信息"""
 
     TEMPLATE_FILE = "draft_content_template.json"
+    TEMPLATE_TIMELINE_ID = "91E08AC5-22FB-47e2-9AA0-7DC300FAEA2B"
+    """capcut-mcp-kit: the timeline id in the template, which every project made from it shared"""
 
     def __init__(self, width: int, height: int, fps: int = 30):
         """创建一个剪映草稿
@@ -211,6 +214,7 @@ class Script_file:
 
         with open(os.path.join(os.path.dirname(__file__), self.TEMPLATE_FILE), "r", encoding="utf-8") as f:
             self.content = json.load(f)
+        self.content["id"] = str(uuid.uuid4()).upper()  # capcut-mcp-kit: a timeline id of its own
 
     @staticmethod
     def load_template(json_path: str) -> "Script_file":
@@ -892,6 +896,8 @@ class Script_file:
         """将草稿文件内容导出为JSON字符串"""
         if profile is None:
             profile = get_draft_profile()
+        if self.content.get("id") == self.TEMPLATE_TIMELINE_ID:
+            self.content["id"] = str(uuid.uuid4()).upper()  # capcut-mcp-kit: a draft made before ids were its own
         self.content["fps"] = self.fps
         self.content["duration"] = self.duration
         self.content["canvas_config"] = {"width": self.width, "height": self.height, "ratio": "original"}

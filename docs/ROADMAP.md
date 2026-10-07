@@ -168,6 +168,8 @@ touch are written back as they were; clips past the first 500 can be edited.
 Seen in CapCut afterwards: in projects that start with an empty video track (kit 0.6 and earlier)
 that empty track is the main track (the cover is there) and a gap on the next track stays, so
 edits treat the first video track as the main track even when it is empty.
+Every project the kit creates now has a timeline id of its own (they all shared the template's,
+which CapCut also uses to name the project's timeline: a risk once projects sync with the cloud).
 
 Seen in the projects analysed (read-only copies, 10 projects, 379 clips): video/photo/audio clips
 carry six kinds of material references (speeds, canvases, placeholder infos, sound channel
