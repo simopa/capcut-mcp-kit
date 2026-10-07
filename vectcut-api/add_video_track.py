@@ -1,3 +1,5 @@
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: no empty default video track is created first (it became CapCut's main track).
+# See NOTICE at the repository root.
 import pyJianYingDraft as draft
 import time
 from settings.local import IS_CAPCUT_ENV
@@ -79,14 +81,8 @@ def add_video_track(
         height=height
     )
     
-    # Check if video track exists, if not, add a default video track
-    try:
-        script.get_track(draft.Track_type.video, track_name=None)
-    except exceptions.TrackNotFound:
-        script.add_track(draft.Track_type.video, relative_index=0)
-    except NameError:
-        # If multiple video tracks exist (NameError), do nothing
-        pass
+    # capcut-mcp-kit: no empty default video track first: CapCut takes the first video track as its main
+    # track (see Script_file.dumps)
 
     # Add video track (only when track doesn't exist)
     if track_name is not None:

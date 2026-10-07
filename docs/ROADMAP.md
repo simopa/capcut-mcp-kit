@@ -150,8 +150,8 @@ time, before the additions. All save and recovery guarantees stay as they are.
    trim keeps the clip's start and the clips after it close up, and moves are refused; titles on
    other tracks do not follow (the reply says so).
 
-To do next: projects made by the kit put their clips on a second video track and leave CapCut's
-main track (the first one, with the cover) empty; new projects should use the main track.
+New projects now put their clips on CapCut's main track (no empty track before it), and a save
+reports gaps there that CapCut's magnet would close.
 
 Seen in the projects analysed (read-only copies, 10 projects, 379 clips): video/photo/audio clips
 carry six kinds of material references (speeds, canvases, placeholder infos, sound channel

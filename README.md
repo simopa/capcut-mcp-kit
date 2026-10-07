@@ -124,6 +124,10 @@ Conventions:
 - **Font size** uses CapCut's own scale: about 5 small, 8 normal, 12–15 big title.
 - **Names** of transitions, animations and effects must be exact CapCut names: look them up with
   `capcut_list_types` (e.g. `category: "transition", search: "dissolve"`).
+- **Main track:** clips on `video_main` (the default) are on CapCut's main track, the bottom layer
+  with the cover. CapCut keeps that track's clips back to back from 0 (main track magnet): a save
+  reports any gap there, because CapCut would close it and move the clips after it. Put clips that
+  must keep a gap on another track.
 - **Transitions** go on the *earlier* clip: they lead from that clip into the next one.
 - **Tracks:** items on one track cannot overlap in time. An item that would overlap goes by itself to
   the first free track like it (`text_main_2`, `video_main_2`… stacked just above) and the reply says

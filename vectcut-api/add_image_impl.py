@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: rotation support.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: rotation support; no empty default video track is created first.
 # See NOTICE at the repository root.
 import uuid
 import pyJianYingDraft as draft
@@ -91,14 +91,8 @@ def add_image_impl(
         height=height
     )
     
-    # Check if video track exists, if not, add a default video track
-    try:
-        script.get_track(draft.Track_type.video, track_name=None)
-    except exceptions.TrackNotFound:
-        script.add_track(draft.Track_type.video, relative_index=0)
-    except NameError:
-        # If multiple video tracks exist (NameError), do nothing
-        pass
+    # capcut-mcp-kit: no empty default video track first: CapCut takes the first video track as its main
+    # track (see Script_file.dumps)
 
     # Add video track (only when track doesn't exist)
     if track_name is not None:

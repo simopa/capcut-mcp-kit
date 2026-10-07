@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: import_srt no longer crashes when no font is given; add_segment can move an overlapping item to a free track (placement.py).
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: import_srt no longer crashes when no font is given; add_segment can move an overlapping item to a free track (placement.py); empty tracks are not exported and video_main is the first video track.
 # See NOTICE at the repository root.
 import os
 import json
@@ -910,9 +910,11 @@ class Script_file:
                 self.content["materials"][material_type].extend(material_list)
 
         # 对轨道排序并导出
-        track_list: List[Base_track] = list(self.tracks.values())
+        # capcut-mcp-kit: empty tracks are left out, and among tracks of one layer "video_main" comes first:
+        # CapCut takes the first video track as its main track (the bottom layer, with the cover)
+        track_list: List[Base_track] = [t for t in self.tracks.values() if t.segments]
         track_list.extend(self.imported_tracks)
-        track_list.sort(key=lambda track: track.render_index)
+        track_list.sort(key=lambda track: (track.render_index, getattr(track, "name", None) != "video_main"))
         self.content["tracks"] = [track.export_json() for track in track_list]
 
         return json.dumps(self.content, ensure_ascii=False, indent=4)

@@ -810,6 +810,25 @@ def ensure_settled(draft_id, folders):
                                  f"settled by any change to that draft (a capcut_add_* call or capcut_save_draft on "
                                  f"it) or by restarting the backend. Nothing was written.")
 
+def main_track_warnings(content_json: str) -> list:
+    """CapCut keeps the clips of its main track (the first video track) back to back from 0 when the
+    main track magnet is on: say so if this project's main track has a gap, which CapCut will close."""
+    content = json.loads(content_json)
+    if (content.get("config") or {}).get("maintrack_adsorb") is not True:
+        return []
+    main = next((t for t in content.get("tracks", []) if t.get("type") == "video" and t.get("segments")), None)
+    if not main:
+        return []
+    spans = sorted((s["target_timerange"]["start"], s["target_timerange"]["start"] + s["target_timerange"]["duration"])
+                   for s in main["segments"])
+    gaps = ([(0, spans[0][0])] if spans[0][0] > 0 else []) + [(e, n) for (_, e), (n, _) in zip(spans, spans[1:]) if n > e]
+    if not gaps:
+        return []
+    return [f"track '{main.get('name')}' is CapCut's main track and has gaps (" +
+            ", ".join(f"{a / 1e6:.3f}-{b / 1e6:.3f}s" for a, b in gaps) +
+            "): CapCut closes them when it opens the project (main track magnet), so the clips after a gap move "
+            "earlier while other tracks stay. Fill the gaps, or put those clips on another track"]
+
 def save_draft_background(draft_id, draft_folder, task_id, project_name=None, auto_deploy=True, overwrite=False):
     """Save a draft. Under the destination folders' locks: the paths it will use are journalled
     before anything is created; the draft is written into a staging folder next to its
@@ -965,6 +984,7 @@ def save_draft_background(draft_id, draft_folder, task_id, project_name=None, au
             if os.path.exists(os.path.join(current_dir, draft_id)):
                 shutil.rmtree(os.path.join(current_dir, draft_id))
 
+        warnings += main_track_warnings(script.dumps(draft_profile))
         update_task_fields(task_id, status="completed", progress=100, message="Draft creation completed")
         logger.info(f"Task {task_id} completed: {deploy_dir or draft_dir}")
         result = {"draft_url": draft_url if IS_UPLOAD_DRAFT else (deploy_dir or draft_dir), "backups": backups}
