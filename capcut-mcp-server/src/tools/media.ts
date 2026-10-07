@@ -386,9 +386,12 @@ in CapCut (ids from capcut_list_clips; only clips listed as editable). Seconds:
   - trim_end: cut from its end; negative extends it
   - move_to: new start on the timeline
   - ripple: the clips after it on the same track shift by the same amount (closes or opens the gap)
-Refused, with the reason, if the clip would overlap another, go past its file, lose keyframes, fades or
-a transition, or change length with intro/outro animations. Nothing is written to the project until
-capcut_save_draft, which checks that only these clips changed.`,
+  - ripple_all: the clips after it on every track shift too (titles, music, overlays stay in step)
+On CapCut's main track (magnet on) a trim keeps the clip's start and the clips after it close up, and
+moves are refused. Video, photo, audio and text clips. Refused, with the reason, if a clip would
+overlap another, go past its file, lose keyframes, fades or a transition, or change length with
+intro/outro animations. Nothing is written to the project until capcut_save_draft, which checks that
+only these clips changed.`,
       inputSchema: z.object({
         draft_id: z.string().min(1),
         clip_id: z.string().min(1),
@@ -396,6 +399,7 @@ capcut_save_draft, which checks that only these clips changed.`,
         trim_end: z.number().optional(),
         move_to: z.number().min(0).optional(),
         ripple: z.boolean().optional(),
+        ripple_all: z.boolean().optional(),
         expected_revision: z.number().int().optional()
       }).strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }

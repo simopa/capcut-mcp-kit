@@ -1,3 +1,5 @@
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: text segments no longer refer to a speed material that is never written.
+# See NOTICE at the repository root.
 """定义文本片段及其相关类"""
 
 import json
@@ -342,6 +344,8 @@ class Text_segment(Visual_segment):
             fixed_height (`int`, optional): 文本固定高度（像素值）, 默认为-1（不固定高度）
         """
         super().__init__(uuid.uuid4().hex, None, timerange, 1.0, 1.0, clip_settings=clip_settings)
+        # capcut-mcp-kit: a text has no speed material in the project; the reference pointed at nothing
+        self.extra_material_refs = []
 
         self.text = text
         self.font = font.value if font else None

@@ -21,7 +21,7 @@ Built on [VectCutAPI](https://github.com/sun-guannan/VectCutAPI) and
 [capcut-mcp-server](https://github.com/Atx-Guy/capcut-mcp-server), which did not work together out
 of the box; this kit fixes and extends them (details in [NOTICE](NOTICE)).
 
-> **Status: 0.6.** macOS with CapCut desktop 9.1 (international). Windows untested; `setup.sh` is
+> **Status: 0.7.** macOS with CapCut desktop 9.1 (international). Windows untested; `setup.sh` is
 > macOS-only.
 
 ## How it works
@@ -146,10 +146,11 @@ Conventions:
   file replaced at the same path is added under its own name, and clips added earlier keep the
   version they were made with.
 - **Editing existing clips** (trim and move for now): `capcut_list_clips` lists the clips of an
-  opened project and which can be edited: video, photo and audio clips at a constant 1× speed whose
-  every reference the kit understands and which it can rewrite unchanged. `capcut_edit_clip` trims
+  opened project and which can be edited: video, photo and audio clips at a constant 1× speed, and
+  text clips, whose every reference the kit understands and which it can rewrite unchanged. `capcut_edit_clip` trims
   or moves one like dragging it in CapCut: `trim_start` / `trim_end` cut from either end (negative
-  extends), `move_to` sets its start, `ripple` shifts the clips after it on the same track. An edit
+  extends), `move_to` sets its start, `ripple` shifts the clips after it on the same track,
+  `ripple_all` on every track (titles, music and overlays after the cut stay in step). An edit
   is refused, with the reason, if the clip would overlap another, go past its file, leave keyframes
   outside it, break a transition or no longer fit its fades, or change length with intro/outro
   animations. On CapCut's main track with its magnet on (the default) the kit does what CapCut does:

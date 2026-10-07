@@ -56,7 +56,7 @@ def rich_content():
     c["tracks"][1]["segments"].append(seg("SEG-ROUND", "MAT-V1", 5_000_000, 1_866_666, ["SPD-1"]))
     c["tracks"][1]["segments"][-1]["source_timerange"]["duration"] = 1_866_667  # 1 µs from a cut
     c["tracks"].append({"id": "TRK-4", "type": "text", "name": "", "segments": [
-        seg("SEG-T", "MAT-T1", 0, 2_000_000, [])]})
+        {**seg("SEG-T", "MAT-T1", 0, 2_000_000, ["NO-SUCH-SPEED"]), "source_timerange": None}]})
     v["common_keyframes"] = [{"property_type": "KFTypePositionX", "keyframe_list": [
         {"id": "K0", "time_offset": 1_000_000, "curveType": "Line", "values": [0.1], "graphID": "",
          "left_control": {"x": 0.0, "y": 0.0}, "right_control": {"x": 0.0, "y": 0.0}}]}]
@@ -71,12 +71,12 @@ def test_the_inventory_says_which_clips_can_be_edited_and_why_not(env, client):
     assert out["success"], out
     clips = {c["id"]: c for c in out["output"]["clips"]}
     assert out["output"]["total"] == 9 and out["output"]["project_name"] == "Clip"
-    assert {i for i, c in clips.items() if c["editable"]} == {"SEG-1", "SEG-P", "SEG-A", "SEG-ROUND"}
+    assert {i for i, c in clips.items() if c["editable"]} == {"SEG-1", "SEG-P", "SEG-A", "SEG-ROUND", "SEG-T"}
     assert clips["SEG-NOSPEED"]["locked_reason"] == "its speed is not recorded"
     assert "speed" in clips["SEG-FAST"]["locked_reason"]
     assert "does not know (missing)" in clips["SEG-UNK"]["locked_reason"]
     assert "curves" in clips["SEG-CURVE"]["locked_reason"] and clips["SEG-CURVE"]["transition"]
-    assert "text clips" in clips["SEG-T"]["locked_reason"] and clips["SEG-T"]["name"] == "Titolo"
+    assert clips["SEG-T"]["kind"] == "text" and clips["SEG-T"]["name"] == "Titolo"  # its missing ref points nowhere
     v = clips["SEG-1"]
     assert (v["kind"], v["name"], v["start"], v["end"], v["source_start"], v["source_end"]) == \
         ("video", "clip.mov", 0, 4, 0, 4)
@@ -252,7 +252,8 @@ def test_trimming_the_start_moves_the_clip_start_and_its_keyframes(env, client):
 def test_ripple_moves_the_clips_after_it(env, client):
     root, d = opened(env, client, main_track())
     out = edit_clip(client, d, "SEG-1", trim_end=1, ripple=True)
-    assert out["success"] and out["output"]["shifted"] == ["SEG-2"] and out["output"]["notes"] == []
+    assert out["success"] and out["output"]["shifted"] == ["SEG-2"]
+    assert out["output"]["notes"] == ["Ripple: the clips after it moved by -1.000s"]
     assert timing(client, d, "SEG-2") == (3, 7, 10, 14)
     assert timing(client, d, "SEG-A") == (0, 4, 0, 4)  # other tracks do not move
 
@@ -314,8 +315,8 @@ def test_animations_and_fades_limit_what_can_change(env, client):
 
 def test_a_locked_clip_or_a_new_draft_cannot_be_edited(env, client):
     root, d = opened(env, client, rich_content())
-    out = edit_clip(client, d, "SEG-T", trim_end=1)
-    assert not out["success"] and "text clips cannot be edited yet" in out["error"]
+    out = edit_clip(client, d, "SEG-FAST", trim_end=0.5)
+    assert not out["success"] and "speed is not a constant" in out["error"]
     new = call(client, "/create_draft", width=1080, height=1920)["output"]["draft_id"]
     out = edit_clip(client, new, "SEG-1", trim_end=1)
     assert not out["success"] and "capcut_open_project" in out["error"]
@@ -378,3 +379,70 @@ def test_a_project_saved_by_the_kit_can_be_opened_and_edited(env, client, tmp_pa
     assert opened["success"], opened
     clip = call(client, "/list_clips", draft_id=opened["output"]["draft_id"])["output"]["clips"][0]
     assert clip["kind"] == "photo" and clip["editable"], clip["locked_reason"]
+
+
+
+# --- Texts and ripple across tracks --------------------------------------------------------------
+
+def with_title_and_music():
+    """The magnet project with a title over the second clip and music from 6 s."""
+    c = magnet_project()  # SEG-1 0-4, SEG-2 4-8 (main track), SEG-T 5-6 (text), SEG-A 0-4 (audio)
+    c["tracks"][-1]["segments"][0]["source_timerange"] = None
+    c["tracks"][1]["segments"].append({"id": "SEG-M", "material_id": "MAT-A1", "speed": 1.0, "extra_material_refs": [],
+                                       "target_timerange": {"start": 6_000_000, "duration": 2_000_000},
+                                       "source_timerange": {"start": 0, "duration": 2_000_000}})
+    return c
+
+
+def test_a_title_can_be_trimmed_and_moved(env, client):
+    root, d = opened(env, client, with_title_and_music())
+    assert edit_clip(client, d, "SEG-T", move_to=4.5)["success"]
+    assert edit_clip(client, d, "SEG-T", trim_end=0.5)["success"]
+    clip = next(c for c in call(client, "/list_clips", draft_id=d)["output"]["clips"] if c["id"] == "SEG-T")
+    assert (clip["start"], clip["end"]) == (4.5, 5) and "source_start" not in clip
+    assert call(client, "/save_draft", draft_id=d)["success"]
+    seg = next(s for t in json.loads((root / "draft_info.json").read_text())["tracks"] for s in t["segments"]
+               if s["id"] == "SEG-T")
+    assert seg["target_timerange"] == {"start": 4_500_000, "duration": 500_000} and seg["source_timerange"] is None
+
+
+def test_ripple_all_keeps_titles_and_music_in_step(env, client):
+    c = with_title_and_music()
+    voice = c["tracks"][1]["segments"][0]  # SEG-A, 0-5: spans the cut at 4 s
+    voice["target_timerange"]["duration"] = voice["source_timerange"]["duration"] = 5_000_000
+    root, d = opened(env, client, c)
+    out = edit_clip(client, d, "SEG-1", trim_start=1, ripple_all=True)
+    assert out["success"], out
+    assert sorted(out["output"]["shifted"]) == ["SEG-2", "SEG-M", "SEG-T"]
+    assert "Not moved, because they span the cut: SEG-A" in out["output"]["notes"]
+    assert timing(client, d, "SEG-2")[:2] == (3, 7)
+    title = next(c for c in call(client, "/list_clips", draft_id=d)["output"]["clips"] if c["id"] == "SEG-T")
+    assert (title["start"], title["end"]) == (4, 5)
+    assert timing(client, d, "SEG-M")[:2] == (5, 7) and timing(client, d, "SEG-A")[:2] == (0, 5)
+
+
+def test_without_ripple_all_the_reply_says_what_did_not_follow(env, client):
+    root, d = opened(env, client, with_title_and_music())
+    out = edit_clip(client, d, "SEG-1", trim_start=1)
+    assert "2 clip(s) on other tracks did not move" in out["output"]["notes"][0]
+    assert "ripple_all moves them" in out["output"]["notes"][0]
+
+
+def test_ripple_all_stops_at_a_clip_it_cannot_move(env, client):
+    c = with_title_and_music()
+    c["materials"]["speeds"].append({"id": "SPD-2", "speed": 2.0})
+    c["tracks"][1]["segments"][1]["extra_material_refs"] = ["SPD-2"]  # SEG-M: locked
+    root, d = opened(env, client, c)
+    out = edit_clip(client, d, "SEG-1", trim_end=1, ripple_all=True)
+    assert not out["success"] and "SEG-M after it would have to move but cannot be edited" in out["error"]
+    assert timing(client, d, "SEG-2")[:2] == (4, 8)
+
+
+def test_new_titles_refer_to_nothing_missing(env, client):
+    import clip_edits
+    d = call(client, "/create_draft", width=1080, height=1920)["output"]["draft_id"]
+    assert call(client, "/add_text", draft_id=d, text="Ciao", start=0, end=1)["success"]
+    content = json.loads(draft_store.get_draft(d).dumps())
+    mats = clip_edits._materials(content)
+    refs = [r for t in content["tracks"] for s in t["segments"] for r in s["extra_material_refs"]]
+    assert all(r in mats for r in refs)

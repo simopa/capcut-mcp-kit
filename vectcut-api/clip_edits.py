@@ -14,7 +14,7 @@ edit can change nothing but the fields it declares, on the segment it names.
 Each kind of clip has an adapter: what it reads from a segment and how it writes it back. A clip
 is editable only if (clip_verdict):
 - its id is unique in the project,
-- it is of a kind an adapter handles (today: video, photo and audio clips, for timing),
+- it is of a kind an adapter handles (today: video, photo, audio and text clips, for timing),
 - everything it refers to is a material the kit knows,
 - its adapter's round trip (read, write back unchanged) gives back the segment exactly.
 Anything else is listed with the reason it is locked.
@@ -26,7 +26,9 @@ import json
 # Materials a timed media clip may refer to (extra_material_refs), as seen in CapCut 9.1 projects
 KNOWN_REFS = {"speeds", "placeholder_infos", "canvases", "sound_channel_mappings", "material_colors",
               "vocal_separations", "transitions", "material_animations", "loudnesses", "audio_fades"}
-TIMED_KINDS = {"video", "photo", "audio"}
+# Materials a text clip may refer to (none of them depends on its length but animations, checked apart)
+KNOWN_TEXT_REFS = {"material_animations", "filters", "effects"}
+TIMED_KINDS = {"video", "photo", "audio", "text"}
 
 
 def _errors():
@@ -70,8 +72,8 @@ def _kind(seg: dict, mats: dict) -> str:
 def read_timing(seg: dict) -> dict:
     """What the timing adapter edits: where the clip is on the timeline, which part of its file it
     plays, and the offsets of its keyframes (relative to the clip's start)."""
-    t, s = seg["target_timerange"], seg["source_timerange"]
-    return {"target": [t["start"], t["duration"]], "source": [s["start"], s["duration"]],
+    t, s = seg["target_timerange"], seg.get("source_timerange")
+    return {"target": [t["start"], t["duration"]], "source": [s["start"], s["duration"]] if s else None,
             "keyframes": [[k["time_offset"] for k in kl.get("keyframe_list", [])]
                           for kl in seg.get("common_keyframes") or []]}
 
@@ -80,7 +82,8 @@ def write_timing(seg: dict, timing: dict) -> dict:
     """A copy of seg with the timing written back; nothing else changes."""
     out = copy.deepcopy(seg)
     out["target_timerange"]["start"], out["target_timerange"]["duration"] = timing["target"]
-    out["source_timerange"]["start"], out["source_timerange"]["duration"] = timing["source"]
+    if timing["source"] is not None:
+        out["source_timerange"]["start"], out["source_timerange"]["duration"] = timing["source"]
     for kl, offsets in zip(out.get("common_keyframes") or [], timing["keyframes"]):
         for k, offset in zip(kl.get("keyframe_list", []), offsets):
             k["time_offset"] = offset
@@ -97,25 +100,31 @@ def clip_verdict(seg: dict, kind: str, mats: dict, dups: set):
         return "its id is not unique in the project"
     if kind not in TIMED_KINDS:
         return f"{kind} clips cannot be edited yet"
+    text = kind == "text"
     t, s = seg.get("target_timerange"), seg.get("source_timerange")
-    if not (isinstance(t, dict) and isinstance(s, dict) and all(_is_int(r.get(k)) for r in (t, s)
-                                                                for k in ("start", "duration"))):
+    ranges = (t,) if text else (t, s)
+    if (text and s is not None) or not all(isinstance(r, dict) and all(_is_int(r.get(k)) for k in ("start", "duration"))
+                                           for r in ranges):
         return "its timing is not in the expected form"
     speeds = []
     for ref in seg.get("extra_material_refs") or []:
         key, material = mats.get(ref, (None, None))
-        if key not in KNOWN_REFS:
+        if key is None and text:
+            continue  # texts made by kit 0.6 and earlier refer to a speed material never written: nothing there
+        if key not in (KNOWN_TEXT_REFS if text else KNOWN_REFS):
             return f"it refers to a material the kit does not know ({key or 'missing'})"
         if key == "speeds":
             if material.get("curve_speed"):
                 return "its speed is not a constant 1×"
             speeds.append(material.get("speed"))
     speed = seg["speed"] if "speed" in seg else next((v for v in speeds if v is not None), None)
+    if text and speed is None:
+        speed = 1.0  # a text has no speed of its own
     if speed is None:
         return "its speed is not recorded"
     if speed not in (1, 1.0) or any(v not in (None, 1, 1.0) for v in speeds):
         return "its speed is not a constant 1×"
-    if abs(t["duration"] - s["duration"]) > 1:  # 1 µs: rounding of a cut, kept as it is by edits
+    if not text and abs(t["duration"] - s["duration"]) > 1:  # 1 µs: rounding of a cut, kept as it is by edits
         return "its timeline and source durations disagree"
     rt = seg.get("render_timerange")
     if rt not in (None, {}, {"start": 0, "duration": 0}):
@@ -255,14 +264,17 @@ def _end(r: dict) -> int:
     return r["start"] + r["duration"]
 
 
-def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=None, ripple=False) -> dict:
+def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=None, ripple=False,
+                ripple_all=False) -> dict:
     """Trim and/or move one clip, like dragging it in CapCut: trim_start cuts from its beginning
-    (its start moves later; negative extends it back into the file), trim_end cuts from its end,
-    move_to places it at a new start (seconds). With ripple, the clips after it on its track shift by
-    the change of its end. On the main track with CapCut's main track magnet on, it behaves as
-    CapCut does: the clip keeps its start, the clips after it always close up, moves are refused. Every clip that changes must be editable and the result must hold on
-    the track: no overlap, transitions still joining their clips, keyframes, fades and the source
-    within the clip and the file. Records the edits in the draft; returns what changed."""
+    (its start moves later; negative extends it back), trim_end cuts from its end, move_to places it
+    at a new start (seconds). With ripple, the clips after it on its track shift by the change of
+    its end; with ripple_all, those on the other tracks too (titles, music, overlays that start
+    after it), so they stay in step. On the main track with CapCut's main track magnet on, it behaves
+    as CapCut does: the clip keeps its start, the clips after it always close up, moves are refused.
+    Every clip that changes must be editable and every track it touches must hold together: no
+    overlap, transitions still joining their clips, keyframes, fades and the source within the clip
+    and its file. Records the edits in the draft; returns what changed."""
     sd = _errors()
     content = current_content(base)
     mats = _materials(content)
@@ -283,8 +295,8 @@ def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=N
     # CapCut keeps the clips of the main track (its first video track) back to back when the main
     # track magnet is on: a gap there is closed when the project opens. Edits there do the same:
     # a trim keeps the clip's start and the clips after it close up; a move would be undone.
-    # Projects made by the kit start with an empty video track: the main track is taken to be the
-    # first video track with clips (closing up is right whichever of the two CapCut picks).
+    # Projects made by kit 0.6 and earlier start with an empty video track: the main track is taken
+    # to be the first video track with clips (closing up is right whichever of the two CapCut picks).
     first_video = next((tr for tr in content.get("tracks", []) if tr.get("type") == "video" and tr.get("segments")), None)
     magnet = track is first_video and (content.get("config") or {}).get("maintrack_adsorb") is True
     if magnet and move_to is not None:
@@ -292,17 +304,20 @@ def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=N
                                 f"clips back to back (main track magnet), so a move would be undone when the project "
                                 f"opens. Trim it instead (the clips after it follow), or move clips on other tracks")
 
-    t, s = dict(seg["target_timerange"]), dict(seg["source_timerange"])
-    old_end = _end(t)
+    t = dict(seg["target_timerange"])
+    s = dict(seg["source_timerange"]) if seg.get("source_timerange") else None  # texts have none
+    old_start, old_end = t["start"], _end(t)
     if not magnet:
         t["start"] += d1
     t["duration"] -= d1 + d2
-    s["start"] += d1
-    s["duration"] -= d1 + d2  # the same change on both keeps any 1 µs rounding between them
     if move_to is not None:
         t["start"] = _us(move_to)
-    ripple = ripple or magnet
-    changes = {segment_id: {"target_timerange": t, "source_timerange": s}}
+    changes = {segment_id: {"target_timerange": t}}
+    if s is not None:
+        s["start"] += d1
+        s["duration"] -= d1 + d2  # the same change as the timeline keeps any 1 µs rounding between them
+        changes[segment_id]["source_timerange"] = s
+    ripple = ripple or ripple_all or magnet
 
     problems = []
     frame = int(round(1_000_000 / float(content.get("fps") or 30)))
@@ -311,9 +326,9 @@ def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=N
         problems.append("it would last less than a frame")
     if t["start"] < 0:
         problems.append("it would start before the beginning of the timeline")
-    if s["start"] < 0:
+    if s is not None and s["start"] < 0:
         problems.append(f"it would start {(-s['start']) / 1e6:.3f}s before the beginning of its file")
-    if isinstance(material.get("duration"), int) and _end(s) > material["duration"]:
+    if s is not None and isinstance(material.get("duration"), int) and _end(s) > material["duration"]:
         problems.append(f"it would go {(_end(s) - material['duration']) / 1e6:.3f}s past the end of its file")
     if seg.get("common_keyframes"):
         keyframes = copy.deepcopy(seg["common_keyframes"])
@@ -331,34 +346,46 @@ def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=N
     if fade and (fade.get("fade_in_duration") or 0) + (fade.get("fade_out_duration") or 0) > t["duration"]:
         problems.append("its fades would no longer fit")
 
+    # The clips after it follow the change of its end: on its track (ripple), on all tracks (ripple_all)
     shift = _end(t) - old_end
+    spanning = []
     if ripple and shift:
         for _, other_track, other in found:
-            if other_track is track and other is not seg and other["target_timerange"]["start"] >= old_end:
+            if other is seg or (other_track is not track and not ripple_all):
+                continue
+            o = other["target_timerange"]
+            if o["start"] >= old_end:
                 if locked(other):
-                    problems.append(f"clip {other.get('id')} after it would have to move but cannot be edited: {locked(other)}")
-                moved = dict(other["target_timerange"])
-                moved["start"] += shift
-                changes[other["id"]] = {"target_timerange": moved}
+                    problems.append(f"clip {other.get('id')} after it would have to move but cannot be edited: "
+                                    f"{locked(other)}")
+                changes[other["id"]] = {"target_timerange": {**o, "start": o["start"] + shift}}
+            elif other_track is not track and _end(o) > old_end and o["start"] < old_end:
+                spanning.append(other.get("id"))
 
-    # The track as it would be: no overlap, transitions still joining their clips and fitting
-    before = sorted(track.get("segments") or [], key=lambda x: x["target_timerange"]["start"])
-    after = sorted(before, key=lambda x: changes.get(x.get("id"), {}).get("target_timerange", x["target_timerange"])["start"])
-    tr = {x.get("id"): changes.get(x.get("id"), {}).get("target_timerange", x["target_timerange"]) for x in before}
-    for a, b in zip(after, after[1:]):
-        if _end(tr[a["id"]]) > tr[b["id"]]["start"]:
-            problems.append(f"it would overlap clip {b['id'] if a is seg else a['id']} on its track")
-    for a, b in zip(before, before[1:]):
-        transition = next((m for r in a.get("extra_material_refs") or []
-                           for key, m in [mats.get(r, (None, {}))] if key == "transitions"), None)
-        if not transition or _end(a["target_timerange"]) != b["target_timerange"]["start"]:
-            continue
-        if a["id"] not in changes and b["id"] not in changes:
-            continue
-        if _end(tr[a["id"]]) != tr[b["id"]]["start"]:
-            problems.append(f"the transition between {a['id']} and {b['id']} would no longer join them")
-        elif min(tr[a["id"]]["duration"], tr[b["id"]]["duration"]) < (transition.get("duration") or 0):
-            problems.append(f"the transition between {a['id']} and {b['id']} would no longer fit")
+    # Every track touched, as it would be: no overlap, transitions still joining their clips and fitting
+    touched = {id(tr): tr for _, tr, x in found if x.get("id") in changes}
+    after_ranges = {}
+    for tr in touched.values():
+        before = sorted(tr.get("segments") or [], key=lambda x: x["target_timerange"]["start"])
+        rng = {x.get("id"): changes.get(x.get("id"), {}).get("target_timerange", x["target_timerange"]) for x in before}
+        after_ranges[id(tr)] = (before, rng)
+        after = sorted(before, key=lambda x: rng[x["id"]]["start"])
+        for a, b in zip(after, after[1:]):
+            if _end(rng[a["id"]]) > rng[b["id"]]["start"]:
+                moved = a if a["id"] in changes else b
+                still = b if moved is a else a
+                problems.append(f"clip {moved['id']} would overlap clip {still['id']} on its track")
+        for a, b in zip(before, before[1:]):
+            transition = next((m for r in a.get("extra_material_refs") or []
+                               for key, m in [mats.get(r, (None, {}))] if key == "transitions"), None)
+            if not transition or _end(a["target_timerange"]) != b["target_timerange"]["start"]:
+                continue
+            if a["id"] not in changes and b["id"] not in changes:
+                continue
+            if _end(rng[a["id"]]) != rng[b["id"]]["start"]:
+                problems.append(f"the transition between {a['id']} and {b['id']} would no longer join them")
+            elif min(rng[a["id"]]["duration"], rng[b["id"]]["duration"]) < (transition.get("duration") or 0):
+                problems.append(f"the transition between {a['id']} and {b['id']} would no longer fit")
     if problems:
         raise sd.SaveDraftError(f"Clip {segment_id} was not changed: " + "; ".join(dict.fromkeys(problems)))
 
@@ -370,13 +397,24 @@ def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=N
         spans = sorted((r["start"], _end(r)) for r in ranges)
         return {(e, n) for (_, e), (n, _) in zip(spans, spans[1:]) if n > e} | \
             ({(0, spans[0][0])} if spans and spans[0][0] > 0 else set())
-    if magnet and shift and changes.keys() - {segment_id}:
-        later = [x for _, other_track, x in found if other_track is not track and _end(x["target_timerange"]) > old_end]
-        notes.append(f"Main track (CapCut's main track magnet): the clips after it moved by {shift / 1e6:+.3f}s" +
-                     (f"; {len(later)} clip(s) on other tracks did not move: titles, music or overlays over the "
-                      f"moved part may need moving too" if later else ""))
+    moved_elsewhere = [sid for sid in changes if sid != segment_id and
+                       next(tr for _, tr, x in found if x.get("id") == sid) is not track]
+    if shift and ripple and changes.keys() - {segment_id}:
+        where = "Main track (CapCut's main track magnet)" if magnet else "Ripple"
+        later = [x.get("id") for _, other_track, x in found
+                 if other_track is not track and x.get("id") not in changes and x["target_timerange"]["start"] >= old_end]
+        note = f"{where}: the clips after it moved by {shift / 1e6:+.3f}s"
+        if moved_elsewhere:
+            note += f", {len(moved_elsewhere)} of them on other tracks"
+        elif later:
+            note += (f"; {len(later)} clip(s) on other tracks did not move: titles, music or overlays over the moved "
+                     f"part may need moving too (ripple_all moves them)")
+        notes.append(note)
+    if spanning:
+        notes.append(f"Not moved, because they span the cut: {', '.join(spanning)}")
     if track is first_video and not magnet:
-        new_gaps = gaps(tr.values()) - gaps(x["target_timerange"] for x in before)
+        before, rng = after_ranges[id(track)]
+        new_gaps = gaps(rng.values()) - gaps(x["target_timerange"] for x in before)
         if new_gaps:
             notes.append("The main track now has a gap at " + ", ".join(f"{g / 1e6:.3f}s ({(n - g) / 1e6:.3f}s long)"
                                                                         for g, n in sorted(new_gaps)) +

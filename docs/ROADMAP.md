@@ -150,6 +150,9 @@ time, before the additions. All save and recovery guarantees stay as they are.
    trim keeps the clip's start and the clips after it close up, and moves are refused; titles on
    other tracks do not follow (the reply says so).
 
+Text clips can now be trimmed and moved too, and `ripple_all` shifts the clips after a cut on every
+track, so titles and music stay in step.
+
 New projects now put their clips on CapCut's main track (no empty track before it), and a save
 reports gaps there that CapCut's magnet would close.
 
