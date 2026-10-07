@@ -147,6 +147,8 @@ def test_project_routes_match_their_contracts(env):
     d = reply(env, "/open_project", "OpenProjectResult", project_name="Esistente")["draft_id"]
     reply(env, "/add_text", "DraftRefResult", draft_id=d, text="Titolo", start=0, end=1)
     reply(env, "/timeline", "TimelineResult", draft_id=d)
+    clips = reply(env, "/list_clips", "ClipListResult", draft_id=d)
+    assert [c["id"] for c in clips["clips"]] == ["SEG-1"] and clips["clips"][0]["editable"]
     saved = reply(env, "/save_draft", "SaveDraftResult", draft_id=d)
     assert saved["added_tracks"] == 1
 

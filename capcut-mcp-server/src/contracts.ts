@@ -148,6 +148,35 @@ export const TimelineResult = z.object({
   }).optional()
 });
 
+const Clip = z.object({
+  id: z.string(),
+  track: z.number(),
+  track_type: z.string().nullable(),
+  track_name: z.string(),
+  kind: z.string(),
+  name: z.string(),
+  start: z.number(),
+  end: z.number(),
+  source_start: z.number().optional(),
+  source_end: z.number().optional(),
+  keyframes: z.array(z.string().nullable()),
+  transition: z.boolean(),
+  animation: z.boolean(),
+  editable: z.boolean(),
+  locked_reason: z.string().nullable()
+}).passthrough();
+
+export const ClipListResult = z.object({
+  draft_id: z.string(),
+  revision: z.number(),
+  project_name: z.string(),
+  total: z.number(),
+  offset: z.number(),
+  next_offset: z.number().nullable(),
+  edits: z.number(),
+  clips: z.array(Clip)
+}).passthrough();
+
 export const CameraMoveResult = DraftRefResult.extend({
   move: z.string(),
   kind: z.enum(['keyframes', 'effect']),
@@ -159,7 +188,7 @@ export const CameraMoveResult = DraftRefResult.extend({
 export const CONTRACTS = {
   DraftRefResult, CreateDraftResult, SaveDraftResult, DurationResult, ListTypesResult,
   ListProjectsResult, OpenProjectResult, TranscribeResult, SpeechRangesResult, WithoutPausesResult,
-  AutoSubtitlesResult, MusicResult, TimelineResult, CameraMoveResult
+  AutoSubtitlesResult, MusicResult, TimelineResult, CameraMoveResult, ClipListResult
 } as const;
 
 export type DraftRef = z.infer<typeof DraftRefResult>;

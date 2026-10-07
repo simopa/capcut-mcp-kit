@@ -137,7 +137,8 @@ def timeline(draft_id: str) -> dict:
     if base:
         import json
         import existing_project
-        content = json.loads(base["raw"])
+        import clip_edits
+        content = clip_edits.current_content(base)  # with the draft's edits to its clips
         out["existing_project"] = {"name": base["name"], "duration": round((content.get("duration") or 0) / 1e6, 3),
                                    "tracks": existing_project._summary(content)}
     return out

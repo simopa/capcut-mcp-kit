@@ -129,11 +129,11 @@ The project's own timeline stays the source of truth: each edit is an operation 
 draft (clip id, field, the original value it expects) and applied to the original JSON at save
 time, before the additions. All save and recovery guarantees stay as they are.
 
-1. *Clip inventory (read-only).* `capcut_list_clips`: every clip of the opened project with its id,
+1. *Clip inventory (read-only)* — done. `capcut_list_clips`: every clip of the opened project with its id,
    track, type, timeline start/end, source in/out, speed, file, existing keyframes, and whether it
    is editable. A clip is editable only if its adapter reads and rewrites it identically (no-change
    round trip); anything not fully understood is listed but locked, with the reason.
-2. *Edit log and extended check.* At save: original → edits → additions. The check restores the
+2. *Edit log and extended check* — done (no tool records edits yet). At save: original → edits → additions. The check restores the
    original value of every declared field and removes the additions: the result must be exactly
    the original timeline, or nothing is written. An edit whose expected value is no longer there
    (project changed) is refused.
@@ -155,6 +155,15 @@ understood before text editing).
 
 Later adapters: keyframes and camera moves on existing clips, volume, text, deleting clips, speed,
 ripple editing.
+
+**Projects from CapCut's cloud (made on the phone)**
+
+A cloud project downloaded by CapCut desktop is a local folder like any other, but CapCut may sync
+it again: it could overwrite the kit's changes with the cloud version, or upload them. Before any
+code, an experiment on a throwaway cloud project: create it on the phone, download it on the Mac,
+analyse a copy of its folder (sync fields, `.cloud_cache`), add a track with the kit while CapCut is
+closed, then check what CapCut shows on the Mac and on the phone. The result decides whether cloud
+projects are supported as they are, with a procedure (e.g. sync paused), or not at all.
 
 ## Later
 

@@ -109,6 +109,7 @@ starts it again if it stops. Its log is `vectcut-api/server.log`. To start it by
 | `capcut_get_timeline` | Tracks of a draft with where each one ends |
 | `capcut_list_projects` | Projects in CapCut's folder, most recent first |
 | `capcut_open_project` | Open a project made in CapCut to add to it (new tracks only; existing clips untouched) |
+| `capcut_list_clips` | Clips already in an opened project, with which can be edited (and why not) |
 | `capcut_get_duration` | Duration and size of a media file |
 | `capcut_transcribe` | Local Whisper transcript as time-stamped blocks (paginated, cached next to the file) |
 | `capcut_detect_pauses` | Preview speech vs pauses and how much would be cut |
@@ -138,7 +139,11 @@ Conventions:
   disagree, or if a path inside it is a symbolic link. It backs up the whole project folder first and
   undoes a write that fails halfway. Media files already in the project are never overwritten: a
   file replaced at the same path is added under its own name, and clips added earlier keep the
-  version they were made with. Existing clips cannot be edited this way.
+  version they were made with. Existing clips cannot be edited yet: `capcut_list_clips` lists them
+  and says which ones the coming timing edits (trim, move) will accept: video, photo and audio clips
+  at a constant 1× speed whose every reference the kit understands, and which it can rewrite
+  unchanged. Edits will be recorded in the draft and checked at save time to change nothing but
+  what they declare.
 - **Saving** again under the same `project_name` replaces the project that draft saved before; the
   old folder is moved to `~/Movies/CapCut MCP Backups` (set `CAPCUT_MCP_BACKUP_DIR` to change it),
   never deleted, and backups are not pruned. A project the draft did not save, or that was changed in

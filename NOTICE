@@ -81,6 +81,9 @@ vectcut-api/
     test_draft_store.py, test_existing_project.py, test_camera_moves.py,
     test_downloader.py, test_placement_and_music.py, test_catalog_and_paging.py,
     test_contracts.py, test_safe_retries.py (new).
+  - clip_edits.py (new), existing_project.py, capcut_server.py: /list_clips lists the
+    clips of an opened project and which can be edited; an edit log applied at save
+    time and checked to change only what it declares.
   - pyJianYingDraft/script_file.py: import_srt crashed when no font was given.
   - The upstream mcp-server/ folder (a copy of the project below) is not included.
 
@@ -105,6 +108,7 @@ capcut-mcp-server/
     capcut_add_camera_move.
   - capcut_list_projects and capcut_open_project (add to an existing project).
   - capcut_add_background_music, capcut_get_timeline; auto_track on the add tools.
+  - capcut_list_clips (clips of an opened project, editable or not).
   - Shorter tool descriptions (arguments are described once, in the schema); the camera
     move list comes from vectcut-api/camera_moves.json; transcripts are paged by the backend.
   - services/backend.ts: the autostart checks the backend's identity and API version,

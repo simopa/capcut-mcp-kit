@@ -337,6 +337,46 @@ version is).`,
   );
 
   server.registerTool(
+    'capcut_list_clips',
+    {
+      title: 'List Clips of an Opened Project',
+      description: `List the clips already in a project opened with capcut_open_project: id, track, kind
+(video, photo, audio, text, ...), file or text, start/end on the timeline and in the source (seconds),
+keyframes, transition/animation, and whether the clip can be edited (if not, why). The list reflects
+edits made in this draft. Read only. Filter with kind or editable_only; page with offset/limit.`,
+      inputSchema: z.object({
+        draft_id: z.string().min(1),
+        kind: z.string().optional(),
+        editable_only: z.boolean().optional(),
+        offset: z.number().int().min(0).optional(),
+        limit: z.number().int().min(1).max(500).optional()
+      }).strict(),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    async (params) => {
+      try {
+        const r = await apiClient.request('/list_clips', 'POST', params, C.ClipListResult);
+        if (!r.success) throw new Error(r.error);
+        const t = r.result;
+        const lines = t.clips.map((c) => {
+          const src = c.source_start !== undefined ? `, source ${c.source_start}-${c.source_end}s` : '';
+          const extra = [c.keyframes.length ? `keyframes: ${c.keyframes.join(', ')}` : '',
+            c.transition ? 'transition' : '', c.animation ? 'animation' : ''].filter(Boolean).join(', ');
+          return `- \`${c.id}\` track ${c.track} (${c.track_type}${c.track_name ? ` "${c.track_name}"` : ''}): ` +
+            `${c.kind} "${c.name}" ${c.start}-${c.end}s${src}${extra ? `; ${extra}` : ''} — ` +
+            (c.editable ? 'editable' : `locked: ${c.locked_reason}`);
+        });
+        let out = `## Clips of "${t.project_name}" (${t.total}, revision ${t.revision}` +
+          `${t.edits ? `, ${t.edits} edit(s) in this draft` : ''})\n${lines.join('\n') || '_none_'}`;
+        if (t.next_offset !== null) out += `\n\nMore clips: call again with offset ${t.next_offset}.`;
+        return { content: [{ type: 'text' as const, text: out }], structuredContent: t };
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+
+  server.registerTool(
     'capcut_add_camera_move',
     {
       title: 'Add Camera Move',

@@ -42,6 +42,7 @@ import time
 import uuid
 
 import pyJianYingDraft as draft
+import clip_edits
 from draft_store import committed_to_disk, journal_begin, journal_update, project_lock, store_new, until_commit
 
 CONTENT_FILE = "draft_info.json"
@@ -177,8 +178,8 @@ def open_project(project_name: str) -> dict:
             "width": script.width, "height": script.height, "fps": content.get("fps"),
             "duration": round((content.get("duration") or 0) / 1e6, 3),
             "tracks": _summary(content), "exact_round_trip": exact,
-            "note": "Additions go on new tracks above the existing ones; existing clips are not changed. "
-                    "Quit CapCut before saving."}
+            "note": "Additions go on new tracks above the existing ones; existing clips are not changed "
+                    "(capcut_list_clips shows them). Quit CapCut before saving."}
 
 
 def merge(original: dict, additions: dict):
@@ -206,8 +207,9 @@ def merge(original: dict, additions: dict):
     return merged, added_ids, len(new_tracks)
 
 
-def verify_untouched(original: dict, merged: dict, added_ids: set, added_tracks: int):
-    """Removing the additions from merged must give back the original exactly."""
+def verify_untouched(original: dict, merged: dict, added_ids: set, added_tracks: int, edits=()):
+    """Removing the additions from merged and putting back every value the edits declare they
+    replace must give back the original exactly."""
     sd = _errors()
     check = copy.deepcopy(merged)
     check["tracks"] = check["tracks"][:len(check["tracks"]) - added_tracks]
@@ -217,6 +219,7 @@ def verify_untouched(original: dict, merged: dict, added_ids: set, added_tracks:
             check["materials"][key] = [m for m in items if not (isinstance(m, dict) and m.get("id") in added_ids)]
             if key not in original["materials"] and not check["materials"][key]:
                 del check["materials"][key]
+    clip_edits.revert_edits(check, list(edits))
     if "duration" in original:
         check["duration"] = original["duration"]
     else:
@@ -347,8 +350,9 @@ def save_into_existing(draft_id: str, script, task_id: str) -> dict:
             sd.verify_references(script, project_dir, stage, existing_ok=True)
             from draft_profiles import get_draft_profile
             additions = json.loads(script.dumps(get_draft_profile()))
-            merged, added_ids, added_tracks = merge(original, additions)
-            verify_untouched(original, merged, added_ids, added_tracks)
+            edits = base.get("edits") or []
+            merged, added_ids, added_tracks = merge(clip_edits.apply_edits(original, edits), additions)
+            verify_untouched(original, merged, added_ids, added_tracks, edits)
             data = SERIALIZERS[base["format"]](merged).encode("utf-8")
             meta_path = sd.project_path(project_dir, "draft_meta_info.json")
             meta_old = _read(meta_path) if os.path.isfile(meta_path) else None

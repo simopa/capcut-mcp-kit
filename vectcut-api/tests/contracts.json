@@ -758,5 +758,126 @@
       "clips"
     ],
     "additionalProperties": true
+  },
+  "ClipListResult": {
+    "type": "object",
+    "properties": {
+      "draft_id": {
+        "type": "string"
+      },
+      "revision": {
+        "type": "number"
+      },
+      "project_name": {
+        "type": "string"
+      },
+      "total": {
+        "type": "number"
+      },
+      "offset": {
+        "type": "number"
+      },
+      "next_offset": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "edits": {
+        "type": "number"
+      },
+      "clips": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "track": {
+              "type": "number"
+            },
+            "track_type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "track_name": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "start": {
+              "type": "number"
+            },
+            "end": {
+              "type": "number"
+            },
+            "source_start": {
+              "type": "number"
+            },
+            "source_end": {
+              "type": "number"
+            },
+            "keyframes": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "transition": {
+              "type": "boolean"
+            },
+            "animation": {
+              "type": "boolean"
+            },
+            "editable": {
+              "type": "boolean"
+            },
+            "locked_reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "track",
+            "track_type",
+            "track_name",
+            "kind",
+            "name",
+            "start",
+            "end",
+            "keyframes",
+            "transition",
+            "animation",
+            "editable",
+            "locked_reason"
+          ],
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": [
+      "draft_id",
+      "revision",
+      "project_name",
+      "total",
+      "offset",
+      "next_offset",
+      "edits",
+      "clips"
+    ],
+    "additionalProperties": true
   }
 }
