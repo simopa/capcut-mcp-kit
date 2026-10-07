@@ -816,9 +816,9 @@ def main_track_warnings(content_json: str) -> list:
     content = json.loads(content_json)
     if (content.get("config") or {}).get("maintrack_adsorb") is not True:
         return []
-    main = next((t for t in content.get("tracks", []) if t.get("type") == "video" and t.get("segments")), None)
-    if not main:
-        return []
+    main = next((t for t in content.get("tracks", []) if t.get("type") == "video"), None)
+    if not main or not main.get("segments"):
+        return []  # an empty main track (older kit projects) has nothing to close up
     spans = sorted((s["target_timerange"]["start"], s["target_timerange"]["start"] + s["target_timerange"]["duration"])
                    for s in main["segments"])
     gaps = ([(0, spans[0][0])] if spans[0][0] > 0 else []) + [(e, n) for (_, e), (n, _) in zip(spans, spans[1:]) if n > e]

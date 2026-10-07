@@ -165,6 +165,9 @@ axis on a clip with uniform scale is refused (the kit does not switch the clip's
 keyframe values must be finite and in range, and timelines are written as strict JSON; the save
 check derives the project duration instead of setting it aside; keyframe lists a move does not
 touch are written back as they were; clips past the first 500 can be edited.
+Seen in CapCut afterwards: in projects that start with an empty video track (kit 0.6 and earlier)
+that empty track is the main track (the cover is there) and a gap on the next track stays, so
+edits treat the first video track as the main track even when it is empty.
 
 Seen in the projects analysed (read-only copies, 10 projects, 379 clips): video/photo/audio clips
 carry six kinds of material references (speeds, canvases, placeholder infos, sound channel

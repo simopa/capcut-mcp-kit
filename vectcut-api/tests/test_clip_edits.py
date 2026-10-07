@@ -355,12 +355,16 @@ def test_on_the_main_track_with_the_magnet_a_trim_closes_up_like_capcut(env, cli
     assert timing(client, d, "SEG-2") == (3, 6, 10, 13)
 
 
-def test_an_empty_first_video_track_is_not_the_main_track(env, client):
+def test_an_empty_first_video_track_is_the_main_track(env, client):
+    # Seen in CapCut: with an empty first video track (projects of kit 0.6 and earlier) the cover is
+    # on that track and a gap on the next one stays
     c = magnet_project()
     c["tracks"].insert(0, {"id": "TRK-EMPTY", "type": "video", "name": "video", "segments": []})
     root, d = opened(env, client, c)
     out = edit_clip(client, d, "SEG-1", trim_end=1)
-    assert out["success"] and out["output"]["shifted"] == ["SEG-2"]
+    assert out["success"] and out["output"]["shifted"] == [] and out["output"]["notes"] == [], out
+    assert timing(client, d, "SEG-2") == (4, 8, 10, 14)  # a gap, as in CapCut
+    assert edit_clip(client, d, "SEG-2", move_to=10)["success"]  # not the main track: moves are allowed
 
 
 def test_on_the_main_track_with_the_magnet_a_move_is_refused(env, client):

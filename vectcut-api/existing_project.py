@@ -182,8 +182,9 @@ def open_project(project_name: str) -> dict:
             "width": script.width, "height": script.height, "fps": content.get("fps"),
             "duration": round((content.get("duration") or 0) / 1e6, 3),
             "tracks": _summary(content), "exact_round_trip": exact,
-            "note": "Additions go on new tracks above the existing ones; existing clips are not changed "
-                    "(capcut_list_clips shows them). Quit CapCut before saving."}
+            "note": "Additions go on new tracks above the existing ones; existing clips change only through "
+                    "capcut_edit_clip, keyframes and camera moves (capcut_list_clips shows them). Quit CapCut "
+                    "before saving."}
 
 
 def merge(original: dict, additions: dict):

@@ -325,9 +325,9 @@ def edit_timing(base: dict, segment_id: str, trim_start=0, trim_end=0, move_to=N
     # CapCut keeps the clips of the main track (its first video track) back to back when the main
     # track magnet is on: a gap there is closed when the project opens. Edits there do the same:
     # a trim keeps the clip's start and the clips after it close up; a move would be undone.
-    # Projects made by kit 0.6 and earlier start with an empty video track: the main track is taken
-    # to be the first video track with clips (closing up is right whichever of the two CapCut picks).
-    first_video = next((tr for tr in content.get("tracks", []) if tr.get("type") == "video" and tr.get("segments")), None)
+    # It is the first video track even when empty (projects made by kit 0.6 and earlier start with
+    # one): CapCut then shows the cover there, and the clips on the next track keep their gaps.
+    first_video = next((tr for tr in content.get("tracks", []) if tr.get("type") == "video"), None)
     magnet = track is first_video and (content.get("config") or {}).get("maintrack_adsorb") is True
     if magnet and move_to is not None:
         raise sd.SaveDraftError(f"Clip {segment_id} was not changed: it is on the main track, where CapCut keeps the "
