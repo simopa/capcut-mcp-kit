@@ -189,6 +189,33 @@ analyse a copy of its folder (sync fields, `.cloud_cache`), add a track with the
 closed, then check what CapCut shows on the Mac and on the phone. The result decides whether cloud
 projects are supported as they are, with a procedure (e.g. sync paused), or not at all.
 
+First experiment (2026-10-12, CapCut desktop with "Project sync" on, a throwaway project uploaded
+from the Mac; the upload from the phone stalled, so the round trip was run from the Mac):
+- The kit's save into the synced project is kept: CapCut opens it as the kit wrote it.
+- The save alone does not trigger an upload (CapCut's own index, `root_meta_info.json`, still has
+  the old date). Opening and closing the project in CapCut does: CapCut rewrites its files, keeps
+  the kit's track, and uploads within seconds (`tm_draft_cloud_modified` follows).
+- Downloaded back from the Space, the project holds the kit's title, and so does the phone (seen
+  on the downloaded copy; the phone's older copy of the original still showed the earlier version).
+- Downloading over a local project of the same name asks first (Cancel / Keep both / Replace).
+  "Keep both" leaves two local projects with the same project id; with sync on, CapCut later
+  resolves it by itself: the downloaded copy keeps the id (and the cloud link), the original is
+  renamed ("Prova R6" became "Prova R6(1)") with a new id, and both are uploaded as separate cloud
+  projects. Content was intact, but a project can change name and id under the kit: a draft opened
+  on the old name then refuses to save (its folder is gone), which is the safe outcome.
+- A downloaded project keeps media in `materials/` with paths written as
+  `##_draftpath_placeholder_<id>_##/materials/...`: the kit must resolve these before cloud
+  downloads are supported.
+- Cloud links are keyed on the project id in `draft_meta_info.json`, not on the timeline id.
+- From the phone (iPhone app, Wi-Fi, charging) nothing reached the Space: a new project stalled at
+  46%, and an edit of a downloaded project, uploaded again from the Space screen and shown at 100%,
+  is not in the cloud copy (checked from the Mac and in the phone's own Space preview). The phone
+  downloads, it does not upload: a CapCut problem on the phone, outside the kit.
+So far: supported with a procedure (after a kit save, open and close the project in CapCut on the
+Mac; on the phone, download it again). Still to try, once the phone uploads: the phone edits a
+project while the kit edits the Mac's copy (which version wins, and whether CapCut warns); and
+placeholder paths in downloaded projects.
+
 ## Later
 
 - Full Windows support and a tested Intel Mac path.
