@@ -207,14 +207,14 @@ from the Mac; the upload from the phone stalled, so the round trip was run from 
   `##_draftpath_placeholder_<id>_##/materials/...`: the kit must resolve these before cloud
   downloads are supported.
 - Cloud links are keyed on the project id in `draft_meta_info.json`, not on the timeline id.
-- From the phone (iPhone app, Wi-Fi, charging) nothing reached the Space: a new project stalled at
-  46%, and an edit of a downloaded project, uploaded again from the Space screen and shown at 100%,
-  is not in the cloud copy (checked from the Mac and in the phone's own Space preview). The phone
-  downloads, it does not upload: a CapCut problem on the phone, outside the kit.
+- Uploads from the phone are slow and land elsewhere: the phone's project (5.3 GB, 10 min) that
+  seemed stuck at 46% reached the Space root hours later, not the "Auto upload" folder the Mac
+  uses. An edit of a downloaded project, uploaded again from the phone, had not reached the cloud
+  copy by the end of the session.
 So far: supported with a procedure (after a kit save, open and close the project in CapCut on the
-Mac; on the phone, download it again). Still to try, once the phone uploads: the phone edits a
-project while the kit edits the Mac's copy (which version wins, and whether CapCut warns); and
-placeholder paths in downloaded projects.
+Mac; on the phone, download it again). Next: download the phone's project on the Mac and run the
+original experiment on it; then the phone edits a project while the kit edits the Mac's copy
+(which version wins, and whether CapCut warns); and placeholder paths in downloaded projects.
 
 ## Later
 
