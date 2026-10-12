@@ -9,10 +9,14 @@ export.
 - **Edits by what is said.** Local Whisper transcription (nothing is uploaded; about 9 minutes for
   a 52-minute talk on an M1), jump cuts in one call, subtitles in sync with the edit.
 - **Works on your own projects.** Open a project you made in CapCut and add titles, music or B-roll
-  on new tracks; what is already there is never touched.
+  on new tracks, or trim, move and animate the clips already there (camera moves, keyframes). Every
+  edit is checked at save: the timeline differs from yours only in what was asked.
+- **Works with CapCut's cloud, with one step.** In a project synced to your CapCut Space, the kit's
+  changes are kept and uploaded once you open and close the project in CapCut on the Mac; on the
+  phone, download it again to see them. Projects made on the phone are being tested.
 - **Built not to lose your work.** Nothing is overwritten: previous versions go to the backups,
   saving waits until CapCut is closed, and a crash at any step leaves the old or the new version,
-  never a mix. Tested by killing the backend after every step, and through five external
+  never a mix. Tested by killing the backend after every step, and through six external
   adversarial reviews.
 - **Local and private.** Everything runs on your Mac; the backend listens on localhost only and
   requires a token.
@@ -166,6 +170,13 @@ Conventions:
   whose x and y scale are locked together takes only `uniform_scale`; `mode: "refuse"` refuses a
   range the clip is already animated in, also by keyframes outside it. Keyframe values must be finite
   numbers within each property's range, and no timeline is ever written with NaN or Infinity.
+- **Projects synced to CapCut's cloud:** the kit's save does not start an upload by itself; open the
+  project in CapCut on the Mac and close it, and CapCut uploads it with the kit's changes. A phone
+  that already has the project shows them after downloading it again. When CapCut asks whether to
+  replace a local project with the cloud one, avoid "Keep both": it leaves two projects with the
+  same id, which CapCut later renames by itself (a draft opened on the old name then refuses to
+  save). Projects downloaded from the cloud keep their media under placeholder paths that the kit
+  does not read yet.
 - **Saving** again under the same `project_name` replaces the project that draft saved before; the
   old folder is moved to `~/Movies/CapCut MCP Backups` (set `CAPCUT_MCP_BACKUP_DIR` to change it),
   never deleted, and backups are not pruned. A project the draft did not save, or that was changed in

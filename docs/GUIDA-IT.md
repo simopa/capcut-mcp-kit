@@ -3,6 +3,9 @@
 Permette a un assistente AI (Claude Code o un altro client MCP) di costruire **progetti CapCut desktop**:
 taglia e mette in fila le clip, aggiunge titoli, sottotitoli, musica, transizioni, effetti, animazioni,
 keyframe e correzioni colore. Il risultato è un normale progetto CapCut che apri, rifinisci ed esporti.
+Lavora anche sui tuoi progetti: aggiunge tracce nuove e accorcia, sposta o anima le clip che ci sono
+già, controllando al salvataggio che non cambi nient'altro. Con i progetti sincronizzati nel cloud di
+CapCut funziona con un passaggio in più (vedi "Progetti nel cloud").
 
 Testato su macOS con CapCut 9.1.0 (versione internazionale).
 
@@ -81,6 +84,15 @@ viene segnalato come conflitto anche quando impedisce di ripulire i temporanei.
 Se hai modificato in CapCut un progetto creato dal kit, il kit non lo sovrascrive più ri-salvando il
 vecchio draft: lo rifiuta e chiede di aprirlo con `capcut_open_project` (oppure `overwrite: true`,
 e la tua versione finisce comunque nei backup).
+
+## Progetti nel cloud
+
+Se il progetto è sincronizzato con lo spazio di CapCut, il salvataggio del kit da solo non lo
+carica: dopo il salvataggio aprilo in CapCut sul Mac e chiudilo, e CapCut lo carica con le modifiche
+del kit. Sul telefono, se il progetto c'era già, va scaricato di nuovo per vederle. Quando CapCut
+chiede se sostituire un progetto locale con quello del cloud, evita "Tieni entrambi": restano due
+progetti con lo stesso identificativo e CapCut poi ne rinomina uno da solo. I progetti scaricati dal
+cloud tengono i video in percorsi che il kit non legge ancora; quelli nati sul telefono sono in prova.
 
 ## Cosa sapere
 
