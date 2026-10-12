@@ -287,6 +287,7 @@ env = { CAPCUT_API_URL = "http://localhost:9001" }
 
 ## Credits and license
 
+- This kit by [simopa](https://github.com/simopa), built with Claude Code
 - VectCutAPI by [sun-guannan](https://github.com/sun-guannan/VectCutAPI), Apache-2.0
 - capcut-mcp-server by [Atx-Guy](https://github.com/Atx-Guy/capcut-mcp-server), MIT
 - Kit files (setup, docs) MIT. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
