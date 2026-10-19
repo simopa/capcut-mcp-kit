@@ -452,6 +452,25 @@ class Text_segment(Visual_segment):
             check_flag |= 16
         if self.shadow and self.shadow.has_shadow:  # 如果有阴影且启用了阴影
             check_flag |= 32  # 添加阴影标志
+
+        # 阴影参数, 应用到每个样式范围
+        shadows = None
+        if self.shadow and self.shadow.has_shadow:
+            shadows = [
+                {
+                    "diffuse": self.shadow.smoothing / 6,  # diffuse = smoothing/6
+                    "angle": self.shadow.angle,
+                    "content": {
+                        "solid": {
+                            "color": [int(self.shadow.color[1:3], 16)/255,
+                                      int(self.shadow.color[3:5], 16)/255,
+                                      int(self.shadow.color[5:7], 16)/255]
+                        }
+                    },
+                    "distance": self.shadow.distance,
+                    "alpha": self.shadow.alpha
+                }
+            ]
     
         # 构建styles数组
         styles = []
@@ -483,22 +502,8 @@ class Text_segment(Visual_segment):
                 }
                 
                 # 如果有阴影设置，添加到样式中
-                if self.shadow and self.shadow.has_shadow:
-                    style_item["shadows"] = [
-                        {
-                            "diffuse": self.shadow.smoothing / 6,  # diffuse = smoothing/6
-                            "angle": self.shadow.angle,
-                            "content": {
-                                "solid": {
-                                    "color": [int(self.shadow.color[1:3], 16)/255, 
-                                             int(self.shadow.color[3:5], 16)/255, 
-                                             int(self.shadow.color[5:7], 16)/255]
-                                }
-                            },
-                            "distance": self.shadow.distance,
-                            "alpha": self.shadow.alpha
-                        }
-                    ]
+                if shadows:
+                    default_style["shadows"] = shadows
                 
                 # 如果有全局字体设置，添加到样式中
                 if self.font:
@@ -538,6 +543,9 @@ class Text_segment(Visual_segment):
                     "strokes": [style_range.border.export_json()] if style_range.border else []
                 }
                 
+                if shadows:
+                    style_item["shadows"] = shadows
+
                 # 如果TextStyleRange有字体设置，优先使用它
                 if hasattr(style_range, 'font') and style_range.font:
                     style_item["font"] = {
@@ -582,6 +590,9 @@ class Text_segment(Visual_segment):
                         "strokes": [self.border.export_json()] if self.border else []
                     }
                     
+                    if shadows:
+                        gap_style["shadows"] = shadows
+
                     # 如果有全局字体设置，添加到样式中
                     if self.font:
                         gap_style["font"] = {
@@ -620,6 +631,9 @@ class Text_segment(Visual_segment):
                     "strokes": [self.border.export_json()] if self.border else []
                 }
                 
+                if shadows:
+                    end_style["shadows"] = shadows
+
                 # 如果有全局字体设置，添加到样式中
                 if self.font:
                     end_style["font"] = {
@@ -657,22 +671,8 @@ class Text_segment(Visual_segment):
             }
             
             # 如果有阴影设置，添加到样式中
-            if self.shadow and self.shadow.has_shadow:
-                style_item["shadows"] = [
-                    {
-                        "diffuse": self.shadow.smoothing / 6,  # diffuse = smoothing/6
-                        "angle": self.shadow.angle,
-                        "content": {
-                            "solid": {
-                                "color": [int(self.shadow.color[1:3], 16)/255, 
-                                            int(self.shadow.color[3:5], 16)/255, 
-                                            int(self.shadow.color[5:7], 16)/255]
-                            }
-                        },
-                        "distance": self.shadow.distance,
-                        "alpha": self.shadow.alpha
-                    }
-                ]
+            if shadows:
+                style_item["shadows"] = shadows
                 
             # 如果有全局字体设置，添加到样式中
             if self.font:
