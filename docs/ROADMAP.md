@@ -170,6 +170,8 @@ that empty track is the main track (the cover is there) and a gap on the next tr
 edits treat the first video track as the main track even when it is empty.
 Every project the kit creates now has a timeline id of its own (they all shared the template's,
 which CapCut also uses to name the project's timeline: a risk once projects sync with the cloud).
+A text shadow now applies to every styled range of a title, not only the first (first external
+contribution, with a regression test for head, ranges, gaps and tail).
 
 Seen in the projects analysed (read-only copies, 10 projects, 379 clips): video/photo/audio clips
 carry six kinds of material references (speeds, canvases, placeholder infos, sound channel
