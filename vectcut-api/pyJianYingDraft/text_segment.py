@@ -1,4 +1,4 @@
-# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: text segments no longer refer to a speed material that is never written.
+# Modified in capcut-mcp-kit (2026) from VectCutAPI @ cfa4779: text segments no longer refer to a speed material that is never written; a shadow applies to every styled range (contributed in #2).
 # See NOTICE at the repository root.
 """定义文本片段及其相关类"""
 
