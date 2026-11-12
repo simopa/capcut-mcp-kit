@@ -86,8 +86,8 @@ def test_covered_presets_never_show_the_canvas(move):
 
 
 def test_uniform_cover_keeps_the_shape_of_a_slide():
-    raw = cp.PRESETS["move_diagonal"](4.0, 1.0, cm._easer("smooth"))
-    curves = cm.move_curves("move_diagonal", 4.0, 1.0, "smooth", None, ASPECT)
+    raw = cp.PRESETS["track_diagonal"](4.0, 1.0, cm._easer("smooth"))
+    curves = cm.move_curves("track_diagonal", 4.0, 1.0, "smooth", None, ASPECT)
     inside = [v for t, v in curves["scale"] if 0.01 < t < 3.99]
     assert max(inside) == pytest.approx(min(inside)) and min(inside) > 1.3  # one zoom for the whole slide
     assert cm._interp(curves["x"], 2.0) == pytest.approx(cm._interp(raw["x"], 2.0))
@@ -95,7 +95,7 @@ def test_uniform_cover_keeps_the_shape_of_a_slide():
 
 def test_a_zoom_keeps_the_focus_point_still():
     draft_id, script = make_draft()
-    cm.add_camera_move(draft_id, "rush_in", 0, 4, focus=[0.8, 0.3])
+    cm.add_camera_move(draft_id, "snap_in", 0, 4, focus=[0.8, 0.3])
     kf = lists(script.tracks["video_main"].segments[0])
     s, x, y = (value(kf[p], 2_000_000) for p in (KP.scale_x, KP.position_x, KP.position_y))
     fx, fy = 2 * 0.8 - 1, 1 - 2 * 0.3
@@ -104,7 +104,7 @@ def test_a_zoom_keeps_the_focus_point_still():
 
 def test_each_step_of_a_multi_zoom_aims_at_its_own_point():
     points = [[0.3, 0.3], [0.7, 0.3], [0.5, 0.7]]
-    curves = cm.move_curves("multi_punch", 6.0, 1.0, "smooth", points, ASPECT)
+    curves = cm.move_curves("triple_punch", 6.0, 1.0, "smooth", points, ASPECT)
     span = (6.0 - 0.3) / 3
     for i, (px, py) in enumerate(points):
         t = i * span + span * 0.8  # well inside step i, after its zoom
@@ -116,7 +116,7 @@ def test_focus_is_checked_before_anything_changes():
     draft_id, script = make_draft()
     for bad in ([1.2, 0.5], [0.5], [[0.5, 0.5], [0.5]], "middle"):
         with pytest.raises(ValueError, match="focus"):
-            cm.add_camera_move(draft_id, "rush_in", 0, 2, focus=bad)
+            cm.add_camera_move(draft_id, "snap_in", 0, 2, focus=bad)
     assert not script.tracks["video_main"].segments[0].common_keyframes
 
 
@@ -128,12 +128,12 @@ def effect_spans(script, track):
 
 def test_presets_add_their_effects_at_the_right_times():
     draft_id, script = make_draft(((0, 20),))
-    out = cm.add_camera_move(draft_id, "flash_multi_punch", 2, 8)
+    out = cm.add_camera_move(draft_id, "flash_punches", 2, 8)
     assert out["effects"] == 3
     span = (6 - 0.3) / 3
     assert effect_spans(script, "camera_fx_white_flash") == [(round(2 + i * span, 2), round(2 + i * span + 0.25, 2))
                                                              for i in range(3)]
-    cm.add_camera_move(draft_id, "defocus_zoom", 10, 15)
+    cm.add_camera_move(draft_id, "blur_push", 10, 15)
     assert effect_spans(script, "camera_fx_blur") == [(10.0, 11.0), (13.9, 14.5)]
 
 
@@ -142,7 +142,7 @@ def test_moves_that_shrink_the_image_get_a_blurred_background():
     out = cm.add_camera_move(draft_id, "spin", 0, 4)
     assert out["fill"] == "blur" and script.tracks["video_main"].segments[0].background_filling is not None
     # again on the same clip: the background is already there
-    assert cm.add_camera_move(draft_id, "tunnel_out", 4, 6)["fill"] == "blur"
+    assert cm.add_camera_move(draft_id, "far_pull", 4, 6)["fill"] == "blur"
     # not covered: the spin turns the image without extra zoom
     assert max(v for _, v in lists(script.tracks["video_main"].segments[0])[KP.scale_x]) <= 1.0 + 1e-9
 
@@ -162,7 +162,7 @@ def test_fill_needs_the_bottom_track():
 
 def test_blackout_steps_cut_through_black_frames():
     draft_id, script = make_draft()
-    cm.add_camera_move(draft_id, "blackout_steps_in", 0, 4)
+    cm.add_camera_move(draft_id, "dark_cuts_in", 0, 4)
     kf = lists(script.tracks["video_main"].segments[0])
     scale = [value(kf[KP.scale_x], int(t * 1e6)) for t in (0.5, 1.5, 2.5, 3.5)]
     assert scale == pytest.approx([1.0, 1.18, 1.36, 1.54])
@@ -180,7 +180,7 @@ def test_presets_work_on_an_opened_project(tmp_path, monkeypatch):
     monkeypatch.setattr(save_draft_impl, "find_capcut_projects_dir", lambda: str(projects))
     write_project(projects, "Esistente", capcut_content())
     d = existing_project.open_project("Esistente")["draft_id"]
-    out = cm.add_camera_move(d, "blackout_steps_in", 0, 3, focus=[0.5, 0.3])
+    out = cm.add_camera_move(d, "dark_cuts_in", 0, 3, focus=[0.5, 0.3])
     assert out["clips"] == 1 and out["fill"] == "none"
     from draft_store import get_draft
     edit = get_draft(d).base_project["edits"][-1]

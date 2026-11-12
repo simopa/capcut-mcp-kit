@@ -9,8 +9,8 @@ Builders get (duration d, intensity k, ease) and return {property: [(seconds, va
 multiplier, x / y as image offsets in half-canvas units (+x right, +y up), rotation in degrees
 (clockwise) and alpha as a multiplier. Two optional keys guide the caller:
   "_steps": start times of the zoom steps of a multi-target move (one focus point per step)
-Timings were measured frame by frame on reference footage at 24 fps (in, hold, out); intensity 1
-gives the measured amplitude, and every amplitude scales with it.
+Timings (in, hold, out) are in seconds; intensity 1 gives each move's own amplitude, and every
+amplitude scales with it.
 
 Moves flagged "fill" in camera_moves.json shrink the image below the canvas on purpose (tunnel,
 recoil, full spin, whip): they are not covered by extra zoom, and on a new draft's main track the
@@ -125,7 +125,7 @@ def hard_stairs(d: float, levels: List[float], gap: float = 2 * FRAME) -> Tuple[
 
 # ---------------------------------------------------------------- the moves
 
-def _whip_zoom(d, k, e):
+def _whip_punch(d, k, e):
     w = min(0.2, d / 4)
     peak = 1 + 0.5 * k
     return {"scale": [(0, 1.0), (w, 1.0), (w + 1e-3, peak), (d - w, peak), (d - w + 1e-3, 1.0), (d, 1.0)],
@@ -185,54 +185,54 @@ PRESETS: Dict[str, Callable] = {
     "drift_out": lambda d, k, e: {"scale": line(d, 1 + 0.25 * k, 1.0)},
     "drift_in_roll": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.25 * k), "rotation": line(d, 0.0, -8 * k)},
     "drift_out_roll": lambda d, k, e: {"scale": line(d, 1 + 0.25 * k, 1.0), "rotation": line(d, 0.0, -5 * k)},
-    "dolly_in": lambda d, k, e: {"scale": e(line(d, 1.0, 1 + 0.36 * k), 4)},
-    "dolly_out": lambda d, k, e: {"scale": e(line(d, 1 + 0.4 * k, 1.0), 4)},
-    "walk_in": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.4 * k), "y": wave(d, 0.02 * k, 1.8),
+    "glide_in": lambda d, k, e: {"scale": e(line(d, 1.0, 1 + 0.36 * k), 4)},
+    "glide_out": lambda d, k, e: {"scale": e(line(d, 1 + 0.4 * k, 1.0), 4)},
+    "stride_in": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.4 * k), "y": wave(d, 0.02 * k, 1.8),
                                 "rotation": wave(d, 0.4 * k, 0.9, 1.0)},
-    "walk_out": lambda d, k, e: {"scale": line(d, 1 + 0.39 * k, 1.0), "y": wave(d, 0.02 * k, 1.8),
+    "stride_out": lambda d, k, e: {"scale": line(d, 1 + 0.39 * k, 1.0), "y": wave(d, 0.02 * k, 1.8),
                                  "rotation": wave(d, 0.4 * k, 0.9, 1.0)},
-    "sway_zoom": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.49 * k), "rotation": wave(d, 2.0 * k, 0.7),
+    "rock_in": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.49 * k), "rotation": wave(d, 2.0 * k, 0.7),
                                   "x": wave(d, 0.02 * k, 0.7, 0.5)},
-    "shake_zoom": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.5 * k), "x": jitter(d, 0.008 * k, 10, 7),
+    "jitter_in": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.5 * k), "x": jitter(d, 0.008 * k, 10, 7),
                                    "y": jitter(d, 0.008 * k, 10, 8)},
-    "quake_zoom": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.25 * k), "rotation": wave(d, 2.0 * k, 0.9),
+    "rumble_in": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.25 * k), "rotation": wave(d, 2.0 * k, 0.9),
                                    "x": wave(d, 0.04 * k, 0.9, 0.3), "y": wave(d, 0.06 * k, 0.9, math.pi)},
-    "bulge_in": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.2 * k)},
-    "bulge_out": lambda d, k, e: {"scale": line(d, 1 + 0.18 * k, 1.0)},
-    "chroma_warp_in": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.04 * k)},
-    "chroma_warp_out": lambda d, k, e: {"scale": line(d, 1 + 0.2 * k, 1.0)},
-    "stutter_in": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.2 * k)},
-    "stutter_out": lambda d, k, e: {"scale": line(d, 1 + 0.22 * k, 1.0), "rotation": wave(d, 3 * k, 0.25)},
-    "echo_zoom": lambda d, k, e: {"scale": [(0, 1.0), (max(d - 0.25, d * 0.8), 1 + 0.49 * k), (d, 1.0)]},
-    "step_zoom": lambda d, k, e: {"scale": stairs(d, [1 + 0.09 * k * (i + 1) for i in range(max(1, int((d - 0.25) / 0.5)))],
+    "lens_push": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.2 * k)},
+    "lens_pull": lambda d, k, e: {"scale": line(d, 1 + 0.18 * k, 1.0)},
+    "fringe_push": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.04 * k)},
+    "fringe_pull": lambda d, k, e: {"scale": line(d, 1 + 0.2 * k, 1.0)},
+    "lag_push": lambda d, k, e: {"scale": line(d, 1.0, 1 + 0.2 * k)},
+    "lag_pull": lambda d, k, e: {"scale": line(d, 1 + 0.22 * k, 1.0), "rotation": wave(d, 3 * k, 0.25)},
+    "surge_snap": lambda d, k, e: {"scale": [(0, 1.0), (max(d - 0.25, d * 0.8), 1 + 0.49 * k), (d, 1.0)]},
+    "beat_zoom": lambda d, k, e: {"scale": stairs(d, [1 + 0.09 * k * (i + 1) for i in range(max(1, int((d - 0.25) / 0.5)))],
                                                   0.08, e)[0]},
 
     # In, hold, out
-    "rush_in": lambda d, k, e: {"scale": iho(d, 1 + 0.25 * k, 0.08, 0.1, e)},
+    "snap_in": lambda d, k, e: {"scale": iho(d, 1 + 0.25 * k, 0.08, 0.1, e)},
     "handheld_soft": lambda d, k, e: {"scale": iho(d, 1 + 0.05 * k, 0.35, 0.35, e),
                                       "x": wave(d, 0.02 * k, 0.35), "y": wave(d, 0.015 * k, 0.5, 1.0),
                                       "rotation": wave(d, 0.3 * k, 0.4, 2.0)},
-    "rig_lift": lambda d, k, e: {"scale": iho(d, 1 + 0.15 * k, 0.6, 0.6, e), "y": iho(d, -0.14 * k, 0.6, 0.6, e, 0.0)},
+    "crane_lift": lambda d, k, e: {"scale": iho(d, 1 + 0.15 * k, 0.6, 0.6, e), "y": iho(d, -0.14 * k, 0.6, 0.6, e, 0.0)},
     "ease_zoom": lambda d, k, e: {"scale": iho(d, 1 + 0.25 * k, 0.75, 0.75, e)},
-    "vignette_zoom": lambda d, k, e: {"scale": [(0, 1.0), (min(0.25, d / 4), 1 + 0.11 * k), (min(0.6, d / 3), 1 + 0.17 * k)]
+    "iris_in": lambda d, k, e: {"scale": [(0, 1.0), (min(0.25, d / 4), 1 + 0.11 * k), (min(0.6, d / 3), 1 + 0.17 * k)]
                                       + [p for p in e([(d - min(0.4, d / 3), 1 + 0.17 * k), (d, 1.0)]) if p[0] > min(0.6, d / 3)]},
-    "defocus_zoom": lambda d, k, e: {"scale": iho(d - min(0.5, d / 4), 1 + 0.25 * k, 1.0, 0.5, e) + [(d, 1.0)]},
-    "defocus_quake": lambda d, k, e: {"scale": iho(d, 1 + 0.24 * k, 1.1, 0.9, e),
+    "blur_push": lambda d, k, e: {"scale": iho(d - min(0.5, d / 4), 1 + 0.25 * k, 1.0, 0.5, e) + [(d, 1.0)]},
+    "blur_rumble": lambda d, k, e: {"scale": iho(d, 1 + 0.24 * k, 1.1, 0.9, e),
                                       "x": jitter(d, 0.01 * k, 8, 3), "y": jitter(d, 0.01 * k, 8, 4)},
-    "chaos_zoom": lambda d, k, e: {"scale": add(iho(d, 1 + 0.25 * k, 0.35, 0.5, e), jitter(d, 0.04 * k, 12, 11, 0, 0.4),
+    "scramble_in": lambda d, k, e: {"scale": add(iho(d, 1 + 0.25 * k, 0.35, 0.5, e), jitter(d, 0.04 * k, 12, 11, 0, 0.4),
                                                 jitter(d, 0.05 * k, 12, 12, d - 0.5)),
                                    "x": add(jitter(d, 0.06 * k, 12, 13, 0, 0.4), jitter(d, 0.2 * k, 12, 14, d - 0.5)),
                                    "y": add(jitter(d, 0.1 * k, 12, 15, 0, 0.4), jitter(d, 0.1 * k, 12, 16, d - 0.5))},
-    "bounce_up": _hold_drift(1.25, 0.45, 0.35, y=0.14, rot=-1.3),
-    "bounce_side": _hold_drift(1.25, 0.45, 0.35, x=0.30),
+    "float_up": _hold_drift(1.25, 0.45, 0.35, y=0.14, rot=-1.3),
+    "float_side": _hold_drift(1.25, 0.45, 0.35, x=0.30),
     "breathe": lambda d, k, e: {"scale": [(t, 1 + 0.125 * k * (1 - math.cos(2 * math.pi * t / d))) for t in
                                           [d * i / 24 for i in range(25)]]},
-    "tremble": lambda d, k, e: {"scale": iho(d, 1 + 0.1 * k, 0.4, 0.25, e),
+    "quiver": lambda d, k, e: {"scale": iho(d, 1 + 0.1 * k, 0.4, 0.25, e),
                                 "x": jitter(d, 0.06 * k, 6, 21, 0.4, d - 0.25), "rotation": jitter(d, 0.5 * k, 6, 22, 0.4, d - 0.25)},
-    "tunnel_out": lambda d, k, e: {"scale": iho(d, max(0.2, 1 - 0.65 * k), 0.4, 0.4, e)},
-    "fast_forward_zoom": lambda d, k, e: {"scale": iho(d, 1 + 0.5 * k, 1.0, 0.6, e),
+    "far_pull": lambda d, k, e: {"scale": iho(d, max(0.2, 1 - 0.65 * k), 0.4, 0.4, e)},
+    "hurtle_in": lambda d, k, e: {"scale": iho(d, 1 + 0.5 * k, 1.0, 0.6, e),
                                           "rotation": add(jitter(d, 2 * k, 10, 31, 0, 1.0), jitter(d, 3 * k, 10, 32, d - 0.6))},
-    "dizzy_drift": lambda d, k, e: {"x": [(0, 0.0), (min(0.25, d / 4), -0.2 * k), (d - min(0.25, d / 4), 0.24 * k), (d, 0.0)],
+    "woozy_drift": lambda d, k, e: {"x": [(0, 0.0), (min(0.25, d / 4), -0.2 * k), (d - min(0.25, d / 4), 0.24 * k), (d, 0.0)],
                                     "scale": [(0, 1.0), (d - min(0.25, d / 4), 1 + 0.24 * k), (d, 1.0)],
                                     "rotation": wave(d, 1.5 * k, 0.4)},
     "recoil": lambda d, k, e: {"scale": [(0, 1.0), (0.17, 1 - 0.13 * k), (0.25, 1 - 0.12 * k), (0.42, 1.0)]},
@@ -240,20 +240,20 @@ PRESETS: Dict[str, Callable] = {
                              "x": [(0, 0.0), (0.12, 0.03 * k), (0.25, -0.03 * k), (0.38, 0.01 * k), (0.5, 0.0)]},
 
     # Several framings, slides, spins
-    "multi_punch": _multi([1.5, 1.62, 2.0], 0.3),
-    "flash_multi_punch": _multi([2.03, 1.39, 2.4], 0.25),
-    "chroma_multi_punch": _multi([1.4, 1.5], 0.35, rot=[4.5, -3.0]),
-    "zoom_slow_fast_slow": _three_speed((0.5, 1.29), (0.54, 1.89), (1.0, 2.45)),
-    "zoom_fast_slow_fast": _three_speed((0.2, 1.85), (0.52, 2.06), (0.62, 2.91), delay=0.08),
-    "slide_slow_fast_slow": _slide([(0, 0, 0), (0.46, -0.11, 0.03), (0.5, -0.27, 0.07), (1.0, -0.4, 0.11)]),
-    "slide_fast_slow_fast": _slide([(0, 0, 0), (0.1, 0.12, -0.18), (0.82, 0.16, -0.24), (0.94, 0.31, -0.46), (1.0, 0.31, -0.46)]),
-    "move_up": lambda d, k, e: {"y": line(d, 0.0, 0.11 * k)},
-    "move_side": lambda d, k, e: {"x": line(d, 0.0, 0.1 * k)},
-    "move_diagonal": lambda d, k, e: {"x": line(d, 0.0, -0.3 * k), "y": line(d, 0.0, -0.39 * k)},
-    "whip_zoom": _whip_zoom,
-    "blackout_steps_in": lambda d, k, e: dict(zip(("scale", "alpha", "_steps"), hard_stairs(
+    "triple_punch": _multi([1.5, 1.62, 2.0], 0.3),
+    "flash_punches": _multi([2.03, 1.39, 2.4], 0.25),
+    "fringe_punches": _multi([1.4, 1.5], 0.35, rot=[4.5, -3.0]),
+    "creep_leap_creep": _three_speed((0.5, 1.29), (0.54, 1.89), (1.0, 2.45)),
+    "leap_creep_leap": _three_speed((0.2, 1.85), (0.52, 2.06), (0.62, 2.91), delay=0.08),
+    "slide_leap": _slide([(0, 0, 0), (0.46, -0.11, 0.03), (0.5, -0.27, 0.07), (1.0, -0.4, 0.11)]),
+    "slide_burst": _slide([(0, 0, 0), (0.1, 0.12, -0.18), (0.82, 0.16, -0.24), (0.94, 0.31, -0.46), (1.0, 0.31, -0.46)]),
+    "track_up": lambda d, k, e: {"y": line(d, 0.0, 0.11 * k)},
+    "track_side": lambda d, k, e: {"x": line(d, 0.0, 0.1 * k)},
+    "track_diagonal": lambda d, k, e: {"x": line(d, 0.0, -0.3 * k), "y": line(d, 0.0, -0.39 * k)},
+    "whip_punch": _whip_punch,
+    "dark_cuts_in": lambda d, k, e: dict(zip(("scale", "alpha", "_steps"), hard_stairs(
         d, [1 + 0.18 * k * i for i in range(max(2, min(5, int(d))))]))),
-    "blackout_steps_out": lambda d, k, e: dict(zip(("scale", "alpha", "_steps"), hard_stairs(
+    "dark_cuts_out": lambda d, k, e: dict(zip(("scale", "alpha", "_steps"), hard_stairs(
         d, [1 + 0.18 * k * i for i in reversed(range(max(2, min(5, int(d)))))]))),
     "spin": lambda d, k, e: {"rotation": [(t, -360 * k * (0.5 - 0.5 * math.cos(math.pi * t / d))) for t in
                                           [d * i / 36 for i in range(37)]]},
@@ -275,25 +275,25 @@ def _steps_flash(effect: str, length: float, values=None):
 
 
 EFFECTS: Dict[str, Callable[[float, List[float]], List[Layer]]] = {
-    "bulge_in": lambda d, s: [("Fisheye", 0, d, {"effects_adjust_distortion": 0.5})],
-    "bulge_out": lambda d, s: [("Fisheye", 0, d, {"effects_adjust_distortion": 0.5})],
-    "chroma_warp_in": lambda d, s: [("Chromatic", 0, d, {}), ("Fisheye", 0, d, {"effects_adjust_distortion": 0.3})],
-    "chroma_warp_out": lambda d, s: [("Chromatic", 0, d, {}), ("Fisheye", 0, d, {"effects_adjust_distortion": 0.3})],
-    "stutter_in": lambda d, s: [("Stuck_Frame", 0, d, {})],
-    "stutter_out": lambda d, s: [("Stuck_Frame", 0, d, {})],
-    "echo_zoom": lambda d, s: [("Motion_Blur", max(0, d - 0.35), d, {"effects_adjust_intensity": 0.6})],
-    "vignette_zoom": lambda d, s: [("Vignette", 0, d, {}), ("Fisheye", 0, d, {"effects_adjust_distortion": 0.25})],
-    "defocus_zoom": lambda d, s: [("Blur", 0, min(1.0, d / 3), {"effects_adjust_blur": 0.6}),
+    "lens_push": lambda d, s: [("Fisheye", 0, d, {"effects_adjust_distortion": 0.5})],
+    "lens_pull": lambda d, s: [("Fisheye", 0, d, {"effects_adjust_distortion": 0.5})],
+    "fringe_push": lambda d, s: [("Chromatic", 0, d, {}), ("Fisheye", 0, d, {"effects_adjust_distortion": 0.3})],
+    "fringe_pull": lambda d, s: [("Chromatic", 0, d, {}), ("Fisheye", 0, d, {"effects_adjust_distortion": 0.3})],
+    "lag_push": lambda d, s: [("Stuck_Frame", 0, d, {})],
+    "lag_pull": lambda d, s: [("Stuck_Frame", 0, d, {})],
+    "surge_snap": lambda d, s: [("Motion_Blur", max(0, d - 0.35), d, {"effects_adjust_intensity": 0.6})],
+    "iris_in": lambda d, s: [("Vignette", 0, d, {}), ("Fisheye", 0, d, {"effects_adjust_distortion": 0.25})],
+    "blur_push": lambda d, s: [("Blur", 0, min(1.0, d / 3), {"effects_adjust_blur": 0.6}),
                                   ("Blur", max(0, d - 1.1), max(0, d - min(0.5, d / 4)), {"effects_adjust_blur": 0.6})],
-    "defocus_quake": lambda d, s: [("Blur", 0, min(1.1, d / 3), {"effects_adjust_blur": 0.4}),
+    "blur_rumble": lambda d, s: [("Blur", 0, min(1.1, d / 3), {"effects_adjust_blur": 0.4}),
                                    ("Blur", max(0, d - 0.9), d, {"effects_adjust_blur": 0.4})],
-    "chaos_zoom": lambda d, s: [("Motion_Blur", 0, min(0.4, d / 3), {}), ("Motion_Blur", max(0, d - 0.5), d, {})],
-    "fast_forward_zoom": lambda d, s: [("Motion_Blur", 0, min(1.0, d / 3), {"effects_adjust_intensity": 0.5}),
+    "scramble_in": lambda d, s: [("Motion_Blur", 0, min(0.4, d / 3), {}), ("Motion_Blur", max(0, d - 0.5), d, {})],
+    "hurtle_in": lambda d, s: [("Motion_Blur", 0, min(1.0, d / 3), {"effects_adjust_intensity": 0.5}),
                                        ("Motion_Blur", max(0, d - 0.6), d, {"effects_adjust_intensity": 0.5})],
-    "dizzy_drift": lambda d, s: [("Dizzy", 0, d, {})],
-    "whip_zoom": lambda d, s: [("Motion_Blur", 0, min(0.4, d / 3), {}), ("Motion_Blur", max(0, d - 0.4), d, {})],
-    "flash_multi_punch": _steps_flash("White_Flash", 0.25),
-    "chroma_multi_punch": _steps_flash("Chromatic", 0.4),
+    "woozy_drift": lambda d, s: [("Dizzy", 0, d, {})],
+    "whip_punch": lambda d, s: [("Motion_Blur", 0, min(0.4, d / 3), {}), ("Motion_Blur", max(0, d - 0.4), d, {})],
+    "flash_punches": _steps_flash("White_Flash", 0.25),
+    "fringe_punches": _steps_flash("Chromatic", 0.4),
     "spin": lambda d, s: [("Rotary_Focus", 0.15 * d, 0.85 * d, {})],
     "recoil": lambda d, s: [("White_Flash", 0, min(0.2, d), {})],
 }

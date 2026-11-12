@@ -120,7 +120,10 @@ starts it again if it stops. Its log is `vectcut-api/server.log`. To start it by
 | `capcut_detect_pauses` | Preview speech vs pauses and how much would be cut |
 | `capcut_add_video_without_pauses` | Add a video with its pauses removed (jump cuts), in one call |
 | `capcut_add_auto_subtitles` | Subtitles from the transcript, short social-style lines, aligned to the edit |
-| `capcut_add_camera_move` | Professional virtual camera moves over a time range: 65 keyframe moves (punch-ins, rushes, drifts, dollies, walking and handheld feels, bounces, step and multi-target zooms, slides, whips, quakes, tremble, spins, blackout jump cuts…), some with CapCut effects timed inside them (flash, blur, fisheye, chromatic, dropped frames), plus 12 effect-only moves. Zooms can aim at a `focus` point, e.g. a face; no canvas edge ever shows |
+| `capcut_add_camera_move` | Professional virtual camera moves over a time range: 65 keyframe moves (punch-ins, rushes, drifts, dollies, walking and handheld feels, bounces, step and multi-target zooms, slides, whips, rumbles, quivers, spins, jump cuts through black…), some with CapCut effects timed inside them (flash, blur, fisheye, chromatic, dropped frames), plus 12 effect-only moves. Zooms can aim at a `focus` point, e.g. a face; no canvas edge ever shows |
+| `capcut_list_camera_moves` | The camera moves added in this draft, with their ids |
+| `capcut_remove_camera_move` | Take a move off (by id or by range): keyframes, effects and background go back to what they were |
+| `capcut_move_camera_move` | Place a move elsewhere, same settings (intensity or focus can change) |
 | `capcut_view_frames` | Still frames of a file or of the timeline (at given times or every N seconds), so the assistant sees the framing before choosing camera moves |
 
 Conventions:

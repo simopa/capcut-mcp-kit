@@ -82,82 +82,82 @@
       "cover": "uniform"
     },
     {
-      "name": "dolly_in",
+      "name": "glide_in",
       "description": "dolly-style push in, gentle start and stop (+36%)",
       "cover": true
     },
     {
-      "name": "dolly_out",
+      "name": "glide_out",
       "description": "dolly-style pull back, gentle start and stop",
       "cover": true
     },
     {
-      "name": "walk_in",
+      "name": "stride_in",
       "description": "zoom in with a walking step bob",
       "cover": true
     },
     {
-      "name": "walk_out",
+      "name": "stride_out",
       "description": "zoom out with a walking step bob",
       "cover": true
     },
     {
-      "name": "sway_zoom",
+      "name": "rock_in",
       "description": "zoom in while the frame sways side to side",
       "cover": true
     },
     {
-      "name": "shake_zoom",
+      "name": "jitter_in",
       "description": "zoom in with a fine nervous shake",
       "cover": true
     },
     {
-      "name": "quake_zoom",
+      "name": "rumble_in",
       "description": "zoom in with a slow rolling quake",
       "cover": true
     },
     {
-      "name": "bulge_in",
+      "name": "lens_push",
       "description": "zoom in through a bulging lens (Fisheye effect)",
       "cover": true
     },
     {
-      "name": "bulge_out",
+      "name": "lens_pull",
       "description": "zoom out through a bulging lens (Fisheye effect)",
       "cover": true
     },
     {
-      "name": "chroma_warp_in",
+      "name": "fringe_push",
       "description": "small zoom in with colour fringing and lens warp",
       "cover": true
     },
     {
-      "name": "chroma_warp_out",
+      "name": "fringe_pull",
       "description": "zoom out with colour fringing and lens warp",
       "cover": true
     },
     {
-      "name": "stutter_in",
+      "name": "lag_push",
       "description": "zoom in with stuttering, dropped frames (Stuck Frame effect)",
       "cover": true
     },
     {
-      "name": "stutter_out",
+      "name": "lag_pull",
       "description": "zoom out with dropped frames and a slow roll",
       "cover": "uniform"
     },
     {
-      "name": "echo_zoom",
+      "name": "surge_snap",
       "description": "long zoom in that snaps back with a blur trail",
       "cover": true
     },
     {
-      "name": "step_zoom",
+      "name": "beat_zoom",
       "description": "zoom in by small beats, one every half second",
       "cover": true
     },
     {
-      "name": "rush_in",
+      "name": "snap_in",
       "description": "near-instant rush in (+25%), hold, rush back out",
       "cover": true
     },
@@ -167,7 +167,7 @@
       "cover": true
     },
     {
-      "name": "rig_lift",
+      "name": "crane_lift",
       "description": "rig-style rise: zoom in while the camera lifts",
       "cover": true
     },
@@ -177,32 +177,32 @@
       "cover": true
     },
     {
-      "name": "vignette_zoom",
+      "name": "iris_in",
       "description": "quick zoom in that settles, with vignette and lens warp",
       "cover": true
     },
     {
-      "name": "defocus_zoom",
+      "name": "blur_push",
       "description": "zoom in through a blur, sharp hold, blur out",
       "cover": true
     },
     {
-      "name": "defocus_quake",
+      "name": "blur_rumble",
       "description": "slow zoom with blur at the ends and a light quake",
       "cover": true
     },
     {
-      "name": "chaos_zoom",
+      "name": "scramble_in",
       "description": "jittery, chaotic zoom in and out with motion blur",
       "cover": true
     },
     {
-      "name": "bounce_up",
+      "name": "float_up",
       "description": "zoom in, then the frame floats up and back down",
       "cover": true
     },
     {
-      "name": "bounce_side",
+      "name": "float_side",
       "description": "zoom in, then the frame floats sideways and back",
       "cover": true
     },
@@ -212,22 +212,22 @@
       "cover": true
     },
     {
-      "name": "tremble",
-      "description": "zoom in and hold with an irregular tremble",
+      "name": "quiver",
+      "description": "zoom in and hold with an irregular quiver",
       "cover": true
     },
     {
-      "name": "tunnel_out",
+      "name": "far_pull",
       "description": "pulls far back into a framed tunnel, then returns",
       "fill": true
     },
     {
-      "name": "fast_forward_zoom",
+      "name": "hurtle_in",
       "description": "rushing zoom with jolts and motion blur",
       "cover": true
     },
     {
-      "name": "dizzy_drift",
+      "name": "woozy_drift",
       "description": "drunken drift across the frame with double vision (Dizzy)",
       "cover": true
     },
@@ -242,67 +242,67 @@
       "cover": true
     },
     {
-      "name": "multi_punch",
+      "name": "triple_punch",
       "description": "three successive punch-ins (a focus point each)",
       "cover": true
     },
     {
-      "name": "flash_multi_punch",
+      "name": "flash_punches",
       "description": "three hard punch-ins, each with a white flash",
       "cover": true
     },
     {
-      "name": "chroma_multi_punch",
+      "name": "fringe_punches",
       "description": "two tilted punch-ins with colour fringing",
       "cover": true
     },
     {
-      "name": "zoom_slow_fast_slow",
+      "name": "creep_leap_creep",
       "description": "zoom creeps, leaps, then creeps again",
       "cover": true
     },
     {
-      "name": "zoom_fast_slow_fast",
+      "name": "leap_creep_leap",
       "description": "zoom leaps, creeps, then leaps again",
       "cover": true
     },
     {
-      "name": "slide_slow_fast_slow",
+      "name": "slide_leap",
       "description": "sideways slide that creeps, leaps, creeps",
       "cover": "uniform"
     },
     {
-      "name": "slide_fast_slow_fast",
+      "name": "slide_burst",
       "description": "diagonal slide that leaps, creeps, leaps",
       "cover": "uniform"
     },
     {
-      "name": "move_up",
+      "name": "track_up",
       "description": "slow steady move up",
       "cover": "uniform"
     },
     {
-      "name": "move_side",
+      "name": "track_side",
       "description": "slow steady move sideways",
       "cover": "uniform"
     },
     {
-      "name": "move_diagonal",
+      "name": "track_diagonal",
       "description": "slow steady diagonal move",
       "cover": "uniform"
     },
     {
-      "name": "whip_zoom",
+      "name": "whip_punch",
       "description": "whip pan into a tighter framing, whip back out at the end",
       "fill": true
     },
     {
-      "name": "blackout_steps_in",
+      "name": "dark_cuts_in",
       "description": "jump-cut zooms in, separated by black frames",
       "cover": true
     },
     {
-      "name": "blackout_steps_out",
+      "name": "dark_cuts_out",
       "description": "jump-cut zooms out, separated by black frames",
       "cover": true
     },

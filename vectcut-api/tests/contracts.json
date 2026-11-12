@@ -760,6 +760,18 @@
           "blur",
           "none"
         ]
+      },
+      "move_id": {
+        "type": "string"
+      },
+      "start": {
+        "type": "number"
+      },
+      "end": {
+        "type": "number"
+      },
+      "replaced": {
+        "type": "string"
       }
     },
     "required": [
@@ -768,7 +780,10 @@
       "revision",
       "move",
       "kind",
-      "clips"
+      "clips",
+      "move_id",
+      "start",
+      "end"
     ],
     "additionalProperties": true
   },
@@ -1043,6 +1058,180 @@
       "of",
       "timeline",
       "frames"
+    ],
+    "additionalProperties": false
+  },
+  "CameraMoveListResult": {
+    "type": "object",
+    "properties": {
+      "draft_id": {
+        "type": "string"
+      },
+      "moves": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "move": {
+              "type": "string"
+            },
+            "start": {
+              "type": "number"
+            },
+            "end": {
+              "type": "number"
+            },
+            "intensity": {
+              "type": "number"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "keyframes",
+                "effect"
+              ]
+            },
+            "focus": {},
+            "where": {
+              "type": "string"
+            },
+            "effects": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "move",
+            "start",
+            "end",
+            "intensity",
+            "kind",
+            "where",
+            "effects"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "draft_id",
+      "moves"
+    ],
+    "additionalProperties": false
+  },
+  "CameraMoveRemoveResult": {
+    "type": "object",
+    "properties": {
+      "draft_id": {
+        "type": "string"
+      },
+      "revision": {
+        "type": "number"
+      },
+      "removed": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "move": {
+              "type": "string"
+            },
+            "start": {
+              "type": "number"
+            },
+            "end": {
+              "type": "number"
+            },
+            "intensity": {
+              "type": "number"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "keyframes",
+                "effect"
+              ]
+            },
+            "focus": {},
+            "where": {
+              "type": "string"
+            },
+            "effects": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "move",
+            "start",
+            "end",
+            "intensity",
+            "kind",
+            "where",
+            "effects"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "moves": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "move": {
+              "type": "string"
+            },
+            "start": {
+              "type": "number"
+            },
+            "end": {
+              "type": "number"
+            },
+            "intensity": {
+              "type": "number"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "keyframes",
+                "effect"
+              ]
+            },
+            "focus": {},
+            "where": {
+              "type": "string"
+            },
+            "effects": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "id",
+            "move",
+            "start",
+            "end",
+            "intensity",
+            "kind",
+            "where",
+            "effects"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "draft_id",
+      "removed",
+      "moves"
     ],
     "additionalProperties": false
   }

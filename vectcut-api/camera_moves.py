@@ -19,10 +19,11 @@ Effect moves add one of CapCut's built-in effects (shake, lens zoom, flash...) o
 intensity scales the effect's strength setting.
 """
 
+import copy
 import json
 import math
 import os
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import pyJianYingDraft as draft
 from pyJianYingDraft import trange, CapCut_Video_scene_effect_type
@@ -318,9 +319,11 @@ class _JsonClip:
         return out
 
 
-def _move_existing_clips(base: dict, project_track, curves, mode: str, s_us: int, e_us: int, start: float, end: float):
+def _move_existing_clips(base: dict, project_track, curves, mode: str, s_us: int, e_us: int, start: float, end: float,
+                         log: Optional[dict] = None):
     """Apply a keyframe move to the clips of an existing project's video track (its index in the
-    project, default the main track), recorded as edits of their keyframes. Returns (clips, track)."""
+    project, default the main track), recorded as edits of their keyframes. Returns (clips, track).
+    log, when given, receives each clip's keyframes as they were, to take the move off later."""
     import clip_edits
     content = clip_edits.current_content(base)
     mats = clip_edits._materials(content)
@@ -354,6 +357,9 @@ def _move_existing_clips(base: dict, project_track, curves, mode: str, s_us: int
         overlaps.append((wrapped, a - t["start"], b - t["start"], seg))
     if not overlaps:
         raise ValueError(f"No clip on track {ti} of the project between {start}s and {end}s")
+    if log is not None:
+        log["clips"] = [{"segment_id": seg["id"], "a": a, "b": b, "before": copy.deepcopy(seg.get("common_keyframes") or [])}
+                        for _, a, b, seg in overlaps]
     _apply_keyframe_move([(w, a, b) for w, a, b, _ in overlaps], curves, mode, s_us)
     for wrapped, _, _, seg in overlaps:
         clip_edits.record_edit(base, seg["id"], {"common_keyframes": wrapped.export()})
@@ -454,10 +460,22 @@ def _fx_params(effect: str, values: Dict[str, float]):
     return out
 
 
-def _move_extras(draft_id: str, script, move: str, start: float, end: float, segments, fill: str) -> dict:
+def _add_fx(draft_id: str, script, effect: str, start: float, end: float, track: str, params, log: dict):
+    """Add a CapCut scene effect and note its segment in the move's log entry."""
+    from add_effect_impl import add_effect_impl
+    before = {id(seg) for seg in script.tracks[track].segments} if track in script.tracks else set()
+    add_effect_impl(effect_type=effect, effect_category="scene", start=start, end=end, draft_id=draft_id,
+                    track_name=track, params=params)
+    for seg in script.tracks[track].segments:
+        if id(seg) not in before:
+            log.setdefault("effects", []).append({"track": track, "start": seg.target_timerange.start,
+                                                  "duration": seg.target_timerange.duration})
+
+
+def _move_extras(draft_id: str, script, move: str, start: float, end: float, segments, fill: str,
+                 log: dict) -> dict:
     """The CapCut effects a preset times inside its range, and the blurred background of the presets
     that shrink the image (new drafts' clips on the bottom video track only)."""
-    from add_effect_impl import add_effect_impl
     d = end - start
     raw = KEYFRAME_MOVES[move][1](d, 1.0, _easer("smooth"))
     layers = EFFECTS[move](d, raw.get("_steps") or [0.0]) if move in EFFECTS else []
@@ -468,8 +486,8 @@ def _move_extras(draft_id: str, script, move: str, start: float, end: float, seg
         a = max(a, ends.get(effect, 0.0))
         if b - a < MIN_DURATION:
             continue
-        add_effect_impl(effect_type=effect, effect_category="scene", start=start + a, end=start + b,
-                        draft_id=draft_id, track_name=f"camera_fx_{effect.lower()}", params=_fx_params(effect, values))
+        _add_fx(draft_id, script, effect, start + a, start + b, f"camera_fx_{effect.lower()}",
+                _fx_params(effect, values), log)
         ends[effect] = b
         added += 1
     filled = "none"
@@ -477,6 +495,10 @@ def _move_extras(draft_id: str, script, move: str, start: float, end: float, seg
         for seg in segments:
             if getattr(seg, "background_filling", None) is None:
                 seg.add_background_filling("blur", 0.375)
+                # pyJianYingDraft lists a clip's background among the materials only when the clip
+                # is added; this one comes later
+                script.materials.canvases.append(seg.background_filling)
+                log.setdefault("filled", []).append(seg.segment_id)
         filled = "blur"
     return {"effects": added, "fill": filled}
 
@@ -510,16 +532,27 @@ def add_camera_move(draft_id: str, move: str, start: float, end: float, intensit
     if move not in KEYFRAME_MOVES and move not in EFFECT_MOVES:
         raise ValueError(f"Unknown move {move}: see the list in capcut_add_camera_move")
     draft_id, script = get_or_create_draft(draft_id=draft_id)
-    from add_effect_impl import add_effect_impl
+    # What the move was asked with, so it can be listed, taken off and placed again
+    log = {"move": move, "start": start, "end": end, "intensity": intensity, "track_name": track_name,
+           "flash": flash, "mode": mode, "easing": easing, "project_track": project_track, "focus": focus,
+           "fill": fill, "clips": [], "effects": [], "filled": []}
+
+    def done(out: dict) -> dict:
+        moves = _log(script)
+        log["id"] = f"m{getattr(script, 'camera_moves_next', 1)}"
+        script.camera_moves_next = getattr(script, "camera_moves_next", 1) + 1
+        moves.append(log)
+        return {"draft_id": draft_id, "draft_url": generate_draft_url(draft_id), "move": move,
+                "move_id": log["id"], "start": start, "end": end, **out}
+
+    def flash_at_start():
+        if flash:
+            _add_fx(draft_id, script, "White_Flash", start, min(end, start + 0.25), "camera_fx_flash", None, log)
 
     if move in EFFECT_MOVES:
-        add_effect_impl(effect_type=EFFECT_MOVES[move][0], effect_category="scene", start=start, end=end,
-                        draft_id=draft_id, track_name="camera_fx", params=_effect_params(move, intensity))
-        if flash:
-            add_effect_impl(effect_type="White_Flash", effect_category="scene", start=start,
-                            end=min(end, start + 0.25), draft_id=draft_id, track_name="camera_fx_flash")
-        return {"draft_id": draft_id, "draft_url": generate_draft_url(draft_id), "move": move,
-                "kind": "effect", "clips": 0}
+        _add_fx(draft_id, script, EFFECT_MOVES[move][0], start, end, "camera_fx", _effect_params(move, intensity), log)
+        flash_at_start()
+        return done({"kind": "effect", "clips": 0})
 
     base = getattr(script, "base_project", None)
     if base and (project_track is not None or track_name not in script.tracks):
@@ -527,13 +560,11 @@ def add_camera_move(draft_id: str, move: str, start: float, end: float, intensit
         _check_fill(move, fill, script, None)
         curves = move_curves(move, end - start, intensity, easing, focus, script.width / script.height)
         clips, ti = _move_existing_clips(base, project_track, curves, mode, int(start * 1e6), int(end * 1e6),
-                                         start, end)
-        extras = _move_extras(draft_id, script, move, start, end, None, fill)
-        if flash:
-            add_effect_impl(effect_type="White_Flash", effect_category="scene", start=start,
-                            end=min(end, start + 0.25), draft_id=draft_id, track_name="camera_fx_flash")
-        return {"draft_id": draft_id, "draft_url": generate_draft_url(draft_id), "move": move,
-                "kind": "keyframes", "clips": clips, "mode": mode, "project_track": ti, **extras}
+                                         start, end, log)
+        log["project_track"], log["on_project"] = ti, True
+        extras = _move_extras(draft_id, script, move, start, end, None, fill, log)
+        flash_at_start()
+        return done({"kind": "keyframes", "clips": clips, "mode": mode, "project_track": ti, **extras})
 
     track = script.tracks.get(track_name)
     if track is None or track.track_type != draft.Track_type.video:
@@ -554,12 +585,179 @@ def add_camera_move(draft_id: str, move: str, start: float, end: float, intensit
         raise ValueError(f"No clip on track {track_name} between {start}s and {end}s")
 
     _check_fill(move, fill, script, [seg for seg, _, _ in overlaps])
+    log["clips"] = [{"segment_id": seg.segment_id, "a": a, "b": b, "before": copy.deepcopy(seg.common_keyframes)}
+                    for seg, a, b in overlaps]
     _apply_keyframe_move(overlaps, curves, mode, s_us)
-    extras = _move_extras(draft_id, script, move, start, end, [seg for seg, _, _ in overlaps], fill)
+    extras = _move_extras(draft_id, script, move, start, end, [seg for seg, _, _ in overlaps], fill, log)
+    flash_at_start()
+    return done({"kind": "keyframes", "clips": len(overlaps), "mode": mode, **extras})
 
-    if flash:
-        add_effect_impl(effect_type="White_Flash", effect_category="scene", start=start,
-                        end=min(end, start + 0.25), draft_id=draft_id, track_name="camera_fx_flash")
 
-    return {"draft_id": draft_id, "draft_url": generate_draft_url(draft_id), "move": move,
-            "kind": "keyframes", "clips": len(overlaps), "mode": mode, **extras}
+# ---------------------------------------------------------------- listing, taking off, moving
+
+def _log(script) -> list:
+    if not hasattr(script, "camera_moves_log"):
+        script.camera_moves_log = []
+    return script.camera_moves_log
+
+
+def _summary(entry: dict) -> dict:
+    out = {k: entry[k] for k in ("id", "move", "start", "end", "intensity") if k in entry}
+    out["kind"] = "effect" if entry["move"] in EFFECT_MOVES else "keyframes"
+    if entry.get("focus") is not None:
+        out["focus"] = entry["focus"]
+    out["where"] = (f"project track {entry['project_track']}" if entry.get("on_project")
+                    else "effect track" if out["kind"] == "effect" else f'track "{entry["track_name"]}"')
+    out["effects"] = len(entry.get("effects") or [])
+    return out
+
+
+def list_camera_moves(draft_id: str) -> dict:
+    from draft_store import get_draft
+    return {"draft_id": draft_id, "moves": [_summary(e) for e in _log(get_draft(draft_id))]}
+
+
+def _same_clip_overlap(a: dict, b: dict) -> bool:
+    for ca in a.get("clips") or []:
+        for cb in b.get("clips") or []:
+            if ca["segment_id"] == cb["segment_id"] and ca["a"] <= cb["b"] and cb["a"] <= ca["b"]:
+                return True
+    return False
+
+
+def _restore_draft_clip(seg, before: list, a: int, b: int):
+    """New draft: the clip's keyframes in [a, b] become those it had before the move."""
+    old = {kl.keyframe_property: kl for kl in before}
+    lists = []
+    for kl in seg.common_keyframes:
+        kl.keyframes = [k for k in kl.keyframes if not a <= k.time_offset <= b]
+        if kl.keyframe_property in old:
+            kl.keyframes += [copy.deepcopy(k) for k in old[kl.keyframe_property].keyframes if a <= k.time_offset <= b]
+            kl.keyframes.sort(key=lambda k: k.time_offset)
+        if kl.keyframes:
+            lists.append(kl)
+    for prop, kl in old.items():
+        if not any(x.keyframe_property == prop for x in lists):
+            restored = Keyframe_list(prop)
+            restored.keyframes = [copy.deepcopy(k) for k in kl.keyframes if a <= k.time_offset <= b]
+            if restored.keyframes:
+                lists.append(restored)
+    seg.common_keyframes = lists
+
+
+def _restore_project_clip(current: list, before: list, a: int, b: int) -> list:
+    """Opened project: the same, on the clip's JSON keyframe lists."""
+    old = {kl.get("property_type"): kl for kl in before}
+    out = []
+    for kl in current:
+        prop = kl.get("property_type")
+        kfs = [k for k in kl.get("keyframe_list") or [] if not a <= k.get("time_offset", 0) <= b]
+        if prop in old:
+            kfs += [copy.deepcopy(k) for k in old[prop].get("keyframe_list") or [] if a <= k.get("time_offset", 0) <= b]
+            kfs.sort(key=lambda k: k.get("time_offset", 0))
+        if kfs:
+            out.append({**kl, "keyframe_list": kfs})
+    for prop, kl in old.items():
+        if not any(x.get("property_type") == prop for x in out):
+            kfs = [copy.deepcopy(k) for k in kl.get("keyframe_list") or [] if a <= k.get("time_offset", 0) <= b]
+            if kfs:
+                out.append({**copy.deepcopy(kl), "keyframe_list": kfs})
+    return out
+
+
+def _take_off(script, entry: dict):
+    """Undo one logged move: its clips' keyframes in its range, its effects, its background."""
+    import clip_edits
+    base = getattr(script, "base_project", None)
+    on_project = bool(base) and entry.get("on_project")
+    for clip in entry.get("clips") or []:
+        if on_project:
+            content = clip_edits.current_content(base)
+            seg = next((s for t in content.get("tracks", []) for s in t.get("segments") or []
+                        if s.get("id") == clip["segment_id"]), None)
+            if seg is None:
+                raise ValueError(f"Clip {clip['segment_id']} of this move is no longer in the project")
+            restored = _restore_project_clip(seg.get("common_keyframes") or [], clip["before"], clip["a"], clip["b"])
+            if restored != (seg.get("common_keyframes") or []):
+                clip_edits.record_edit(base, clip["segment_id"], {"common_keyframes": restored})
+        else:
+            seg = next((s for t in script.tracks.values() for s in t.segments if s.segment_id == clip["segment_id"]), None)
+            if seg is None:
+                raise ValueError(f"Clip {clip['segment_id']} of this move is no longer on the timeline")
+            _restore_draft_clip(seg, clip["before"], clip["a"], clip["b"])
+    for fx in entry.get("effects") or []:
+        track = script.tracks.get(fx["track"])
+        if track is None:
+            continue
+        for seg in list(track.segments):
+            if seg.target_timerange.start == fx["start"] and seg.target_timerange.duration == fx["duration"]:
+                track.segments.remove(seg)
+                effect = getattr(seg, "effect_inst", None)
+                if effect is not None and effect in script.materials.video_effects:
+                    script.materials.video_effects.remove(effect)
+                break
+    still_filled = {sid for e in _log(script) if e is not entry for sid in e.get("filled") or []}
+    for sid in entry.get("filled") or []:
+        if sid in still_filled:
+            continue
+        seg = next((s for t in script.tracks.values() for s in t.segments if s.segment_id == sid), None)
+        fill = getattr(seg, "background_filling", None)
+        if fill is not None:
+            seg.background_filling = None
+            seg.extra_material_refs = [r for r in seg.extra_material_refs if r != fill.global_id]
+            if fill in script.materials.canvases:
+                script.materials.canvases.remove(fill)
+
+
+def _logged(script, move_id: str) -> dict:
+    entry = next((e for e in _log(script) if e["id"] == move_id), None)
+    if entry is None:
+        raise ValueError(f"No camera move {move_id} in this draft: capcut_list_camera_moves lists them")
+    return entry
+
+
+def remove_camera_move(draft_id: str, move_id: Optional[str] = None, start: Optional[float] = None,
+                       end: Optional[float] = None) -> dict:
+    """Take off one move (by id), or every move of this draft inside [start, end]. Moves added after it
+    over the same stretch of the same clip must go first (they were built on top of it)."""
+    from draft_store import get_draft
+    script = get_draft(draft_id)
+    moves = _log(script)
+    if move_id is not None:
+        targets = [_logged(script, move_id)]
+    elif start is not None and end is not None and end > start:
+        targets = [e for e in moves if e["start"] >= start - 1e-6 and e["end"] <= end + 1e-6]
+        if not targets:
+            raise ValueError(f"No camera move of this draft lies between {start}s and {end}s")
+    else:
+        raise ValueError("Give move_id, or start and end")
+    # newest first, so each move is undone on top of what it found
+    for entry in sorted(targets, key=moves.index, reverse=True):
+        later = [e for e in moves[moves.index(entry) + 1:] if e not in targets and _same_clip_overlap(entry, e)]
+        if later:
+            raise ValueError(f"{entry['id']} ({entry['move']}) has later moves over the same stretch: take off "
+                             f"{', '.join(e['id'] for e in later)} first")
+        _take_off(script, entry)
+        moves.remove(entry)
+    return {"draft_id": draft_id, "removed": [_summary(e) for e in targets],
+            "moves": [_summary(e) for e in moves]}
+
+
+def move_camera_move(draft_id: str, move_id: str, start: float, end: Optional[float] = None,
+                     intensity: Optional[float] = None, focus=None) -> dict:
+    """Take a move off and place it again at start (same length unless end is given), with the
+    same settings unless intensity or focus are given."""
+    from draft_store import get_draft
+    script = get_draft(draft_id)
+    entry = _logged(script, move_id)
+    if end is None:
+        end = start + (entry["end"] - entry["start"])
+    remove_camera_move(draft_id, move_id)
+    out = add_camera_move(draft_id, entry["move"], start, end,
+                          intensity=entry["intensity"] if intensity is None else intensity,
+                          track_name=entry["track_name"], flash=entry["flash"], mode=entry["mode"],
+                          easing=entry["easing"],
+                          project_track=entry["project_track"] if entry.get("on_project") else None,
+                          focus=entry["focus"] if focus is None else focus, fill=entry["fill"])
+    out["replaced"] = move_id
+    return out

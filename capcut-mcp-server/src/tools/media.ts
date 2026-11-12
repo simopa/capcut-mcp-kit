@@ -47,6 +47,20 @@ function fail(error: unknown) {
   return { ...text(`Error: ${error instanceof Error ? error.message : String(error)}`), isError: true };
 }
 
+function describeAdded(p: C.CameraMoveAdded, start: number, end: number): string {
+  if (p.kind === 'effect') return `Added ${p.move} (effect, id ${p.move_id}) from ${start}s to ${end}s.`;
+  const extras = [p.effects ? `${p.effects} CapCut effect(s) inside the range` : '',
+    p.fill === 'blur' ? 'blurred background behind the clip' : ''].filter(Boolean).join(', ');
+  return `Added ${p.move} (id ${p.move_id}) from ${start}s to ${end}s on ${p.clips} clip(s)` +
+    (extras ? ` (${extras}).` : '.');
+}
+
+function moveLine(m: C.CameraMoveListed): string {
+  const focus = m.focus !== undefined ? `, focus ${JSON.stringify(m.focus)}` : '';
+  return `- ${m.id}: ${m.move} ${m.start}-${m.end}s on ${m.where}, intensity ${m.intensity}${focus}` +
+    (m.effects ? `, ${m.effects} effect(s)` : '');
+}
+
 export function registerMediaTools(server: McpServer): void {
   server.registerTool(
     'capcut_transcribe',
@@ -253,6 +267,89 @@ Args:
           { ...rest, transform_y: (0.5 - position_y) * 2 }, C.AutoSubtitlesResult);
         if (!r.success) throw new Error(r.error);
         return text(`Added ${r.result.subtitles} subtitles to draft ${r.result.draft_id}. First:\n${r.result.first}`);
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    'capcut_list_camera_moves',
+    {
+      title: 'List Camera Moves',
+      description: `List the camera moves added to this draft with capcut_add_camera_move: id, move, range,
+where, intensity, focus and the CapCut effects each one added. Use the ids to take a move off or move it.
+Moves saved in an earlier session are not listed (they are plain keyframes in the project by then).`,
+      inputSchema: z.object({ draft_id: z.string().min(1) }).strict(),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    async (params) => {
+      try {
+        const r = await apiClient.request('/list_camera_moves', 'POST', params, C.CameraMoveListResult);
+        if (!r.success) throw new Error(r.error);
+        const moves = r.result.moves;
+        return text(moves.length ? `## Camera moves (${moves.length})\n${moves.map(moveLine).join('\n')}` : 'No camera moves in this draft.');
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    'capcut_remove_camera_move',
+    {
+      title: 'Remove Camera Move',
+      description: `Take off a camera move added to this draft: its clips get back the keyframes they had in
+its range, and the CapCut effects and background it added go. Give move_id (from capcut_list_camera_moves),
+or start and end to take off every move of the draft inside that range. A move with a later move over the
+same stretch of the same clip is refused until the later one is taken off.`,
+      inputSchema: z.object({
+        draft_id: z.string().min(1),
+        move_id: z.string().min(1).optional(),
+        start: z.number().min(0).optional(),
+        end: z.number().positive().optional()
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+    },
+    async (params) => {
+      try {
+        if (params.move_id === undefined && (params.start === undefined || params.end === undefined)) {
+          throw new Error('Give move_id, or start and end');
+        }
+        const r = await apiClient.request('/remove_camera_move', 'POST', params, C.CameraMoveRemoveResult);
+        if (!r.success) throw new Error(r.error);
+        const t = r.result;
+        return text(`Took off ${t.removed.map((m) => `${m.id} (${m.move} ${m.start}-${m.end}s)`).join(', ')}.` +
+          (t.moves.length ? `\nStill there:\n${t.moves.map(moveLine).join('\n')}` : '\nNo camera moves left.'));
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    'capcut_move_camera_move',
+    {
+      title: 'Move Camera Move',
+      description: `Place a camera move of this draft somewhere else: it is taken off and added again at start,
+with the same settings (and length, unless end is given); intensity or focus can change at the same time.
+The move gets a new id.`,
+      inputSchema: z.object({
+        draft_id: z.string().min(1),
+        move_id: z.string().min(1),
+        start: z.number().min(0),
+        end: z.number().positive().optional(),
+        intensity: z.number().min(0.1).max(3).optional(),
+        focus: z.union([Point, z.array(Point).min(1).max(8)]).optional()
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+    },
+    async (params) => {
+      try {
+        const r = await apiClient.request('/move_camera_move', 'POST', params, C.CameraMoveResult);
+        if (!r.success) throw new Error(r.error);
+        const p = r.result;
+        return text(`Moved ${params.move_id}: ` + describeAdded(p, p.start, p.end).replace(/^Added /, ''));
       } catch (error) {
         return fail(error);
       }
@@ -499,9 +596,9 @@ Effect moves add a CapCut effect on the "camera_fx" track:
 ${CAMERA_MOVES.effects.map(([n, d]) => `  - ${n}: ${d}`).join('\n')}
 
 Zooms aim at the centre, or at focus: a point [x, y] (0-1 from the top-left), e.g. a face found with
-capcut_view_frames; multi-step moves (multi_punch...) take one point per step. Presets zoom as much as
+capcut_view_frames; multi-step moves (triple_punch...) take one point per step. Presets zoom as much as
 their rotation and offsets need so no canvas edge shows; zoom-outs start from a closer framing and pull
-back, so start them on a cut. tunnel_out, recoil, spin and whip_zoom shrink the image on purpose: on a
+back, so start them on a cut. far_pull, recoil, spin and whip_punch shrink the image on purpose: on a
 new draft's bottom video track the clip gets a blurred background (fill "auto"), elsewhere the canvas
 shows around it. Some presets add CapCut effects inside their range (flash, blur, fisheye, chromatic...).
 
@@ -549,11 +646,7 @@ Args:
         const r = await apiClient.request('/add_camera_move', 'POST', params, C.CameraMoveResult);
         if (!r.success) throw new Error(r.error);
         const p = r.result;
-        if (p.kind === 'effect') return text(`Added ${p.move} (effect) from ${params.start}s to ${params.end}s.`);
-        const extras = [p.effects ? `${p.effects} CapCut effect(s) inside the range` : '',
-          p.fill === 'blur' ? 'blurred background behind the clip' : ''].filter(Boolean).join(', ');
-        return text(`Added ${p.move} from ${params.start}s to ${params.end}s on ${p.clips} clip(s)` +
-          (extras ? ` (${extras}).` : '.'));
+        return text(describeAdded(p, p.start, p.end));
       } catch (error) {
         return fail(error);
       }

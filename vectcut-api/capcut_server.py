@@ -1763,6 +1763,29 @@ def add_camera_move():
         project_track=d.get("project_track"), focus=d.get("focus"), fill=d.get("fill") or "auto"))
 
 
+@app.route('/list_camera_moves', methods=['POST'])
+def list_camera_moves():
+    return _media_route(lambda d: camera_moves.list_camera_moves(d["draft_id"]))
+
+
+@app.route('/remove_camera_move', methods=['POST'])
+@transactional
+def remove_camera_move():
+    return _media_route(lambda d: camera_moves.remove_camera_move(
+        d["draft_id"], move_id=d.get("move_id"),
+        start=float(d["start"]) if d.get("start") is not None else None,
+        end=float(d["end"]) if d.get("end") is not None else None))
+
+
+@app.route('/move_camera_move', methods=['POST'])
+@transactional
+def move_camera_move():
+    return _media_route(lambda d: camera_moves.move_camera_move(
+        d["draft_id"], d["move_id"], float(d["start"]),
+        end=float(d["end"]) if d.get("end") is not None else None,
+        intensity=float(d["intensity"]) if d.get("intensity") is not None else None, focus=d.get("focus")))
+
+
 @app.route('/add_background_music', methods=['POST'])
 @transactional
 def add_background_music():

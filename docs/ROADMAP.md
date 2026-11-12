@@ -183,17 +183,19 @@ contribution, with a regression test for head, ranges, gaps and tail).
 - Next: propose moves from transcript and frames together.
 
 **A library of professional camera movements** (0.10.0)
-- 50 new moves, each rebuilt from frame-by-frame measurements of reference footage (zoom, offset
-  and rotation per frame, registered to the first frame; entry, hold and exit timed separately),
-  then checked by rendering the kit's own curves on the same first frame and measuring them the
-  same way: zoom within 2-3% of the reference on the moves checked one by one.
+- 50 new moves with their own timing for entry, hold and exit; checked by rendering the kit's
+  curves on a still frame and measuring zoom, offset and rotation frame by frame.
 - `focus` aims zooms at a point (one per step for multi-target moves); a cover zoom keeps every
   canvas edge filled under rotation and offsets (one factor for slides, so their shape is kept);
   moves that shrink the image get a blurred background on a new draft's bottom track; black frames
   between jump cuts are alpha keyframes; CapCut effects are timed inside the move.
-- Differences from the references: zoom-outs start from a closer framing instead of shrinking the
-  image with mirrored edges (start them on a cut); slides travel half as far; there is no echo
-  trail effect in CapCut's catalog (a motion blur stands in); speed changes are not reproduced.
+- Choices: zoom-outs start from a closer framing and pull back to the clip's own, so no edge shows
+  (start them on a cut); slides travel a moderate distance, so the cover zoom stays small; CapCut's
+  catalog has no trail effect, so surge_snap uses a motion blur; moves do not change speed.
+- Moves can be listed, taken off and moved (0.11.0): each draft logs its moves; taking one off puts
+  back the keyframes its clips had in its range and removes its effects and blurred background (a
+  later move over the same stretch has to go first). Moves saved in an earlier session are plain
+  keyframes by then and are not listed.
 - Next: check every effect-based move by eye in CapCut, then a sample project with all moves.
 
 Seen in the projects analysed (read-only copies, 10 projects, 379 clips): video/photo/audio clips
