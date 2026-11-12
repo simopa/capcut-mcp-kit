@@ -750,6 +750,16 @@
       },
       "project_track": {
         "type": "number"
+      },
+      "effects": {
+        "type": "number"
+      },
+      "fill": {
+        "type": "string",
+        "enum": [
+          "blur",
+          "none"
+        ]
       }
     },
     "required": [

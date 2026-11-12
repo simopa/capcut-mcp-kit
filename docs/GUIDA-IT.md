@@ -54,6 +54,17 @@ nascondere i salti. I movimenti si sommano ai keyframe già presenti; per rifare
 stesso tratto si usa `mode: "replace"`. `easing` sceglie l'andamento: morbido (smooth), lineare,
 scattante (snappy) o drammatico (dramatic).
 
+Oltre a questi ci sono 50 movimenti più elaborati, misurati fotogramma per fotogramma su riprese di
+riferimento: zoom lenti (drift, dolly, camminata, oscillazione, terremoto), entrate rapide con tenuta
+(rush_in, ease_zoom, rig_lift, rimbalzi, tremolio), zoom a gradini e su più punti (step_zoom,
+multi_punch con flash), scivolamenti, frustate, rotazione completa, stacchi con fotogrammi neri, e
+versioni con effetti CapCut dentro il movimento (sfocatura, fisheye, aberrazione cromatica, fotogrammi
+saltati). Lo zoom punta al centro o al punto `focus` che indichi (per esempio il viso, trovato con
+`capcut_view_frames`), e sale da solo quanto serve perché rotazioni e spostamenti non mostrino mai i
+bordi. Gli zoom indietro partono da un'inquadratura più stretta: falli cominciare su un taglio.
+I movimenti si chiedono a parole all'assistente; in CapCut restano keyframe ed effetti normali, che
+puoi ritoccare a mano.
+
 Prima di scegliere i movimenti l'assistente può guardare il video: `capcut_view_frames` estrae
 fotogrammi da un file o dalla timeline, nei momenti indicati o uno ogni tot secondi (al massimo 24
 per volta). Così vede dove sei nel quadro e quanto spazio c'è sopra la testa, e sceglie uno zoom

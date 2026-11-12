@@ -1760,7 +1760,7 @@ def add_camera_move():
         d["draft_id"], d["move"], float(d["start"]), float(d["end"]),
         intensity=float(d.get("intensity", 1.0)), track_name=d.get("track_name") or "video_main",
         flash=bool(d.get("flash", False)), mode=d.get("mode") or "compose", easing=d.get("easing") or "smooth",
-        project_track=d.get("project_track")))
+        project_track=d.get("project_track"), focus=d.get("focus"), fill=d.get("fill") or "auto"))
 
 
 @app.route('/add_background_music', methods=['POST'])

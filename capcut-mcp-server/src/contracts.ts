@@ -190,7 +190,9 @@ export const CameraMoveResult = DraftRefResult.extend({
   kind: z.enum(['keyframes', 'effect']),
   clips: z.number(),
   mode: z.enum(['compose', 'replace', 'refuse']).optional(),
-  project_track: z.number().optional()
+  project_track: z.number().optional(),
+  effects: z.number().optional(),
+  fill: z.enum(['blur', 'none']).optional()
 });
 
 export const FramesResult = z.object({

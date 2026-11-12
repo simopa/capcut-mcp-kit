@@ -22,6 +22,8 @@ const CAMERA_MOVES = {
 };
 const ALL_MOVES = [...CAMERA_MOVES.keyframes, ...CAMERA_MOVES.effects].map(([n]) => n) as unknown as [string, ...string[]];
 
+const Point = z.tuple([z.number().min(0).max(1), z.number().min(0).max(1)]);
+
 const LocalPath = z.string()
   .min(1)
   .describe('Absolute local path to the video or audio file');
@@ -496,6 +498,13 @@ ${CAMERA_MOVES.keyframes.map(([n, d]) => `  - ${n}: ${d}`).join('\n')}
 Effect moves add a CapCut effect on the "camera_fx" track:
 ${CAMERA_MOVES.effects.map(([n, d]) => `  - ${n}: ${d}`).join('\n')}
 
+Zooms aim at the centre, or at focus: a point [x, y] (0-1 from the top-left), e.g. a face found with
+capcut_view_frames; multi-step moves (multi_punch...) take one point per step. Presets zoom as much as
+their rotation and offsets need so no canvas edge shows; zoom-outs start from a closer framing and pull
+back, so start them on a cut. tunnel_out, recoil, spin and whip_zoom shrink the image on purpose: on a
+new draft's bottom video track the clip gets a blurred background (fill "auto"), elsewhere the canvas
+shows around it. Some presets add CapCut effects inside their range (flash, blur, fisheye, chromatic...).
+
 Moves stack on keyframes already on the clips (mode "compose"); to redo a move over the same range use
 mode "replace", or "refuse" to error if the clip is already animated in the range (a keyframe in it,
 or an animation passing through it). Keyframes outside the range are never changed. Short ranges (min 0.1 s) squeeze the move's shape; every move ends on the
@@ -515,7 +524,9 @@ Args:
   - project_track (number): on a project opened with capcut_open_project, index of its own video track
     (from capcut_list_clips; default its main track): the move animates the clips already there
   - flash (boolean): Add a short white flash at the start (good with punch / punch_in)
-  - mode ('compose' | 'replace' | 'refuse'), easing ('smooth' | 'linear' | 'snappy' | 'dramatic')`,
+  - mode ('compose' | 'replace' | 'refuse'), easing ('smooth' | 'linear' | 'snappy' | 'dramatic')
+  - focus ([x, y] or [[x, y], ...]): where zooms aim (default the centre)
+  - fill ('auto' | 'blur' | 'none'): background of the presets that shrink the image`,
       inputSchema: z.object({
         draft_id: z.string().min(1),
         move: z.enum(ALL_MOVES),
@@ -526,7 +537,10 @@ Args:
         flash: z.boolean().default(false),
         mode: z.enum(['compose', 'replace', 'refuse']).default('compose'),
         easing: z.enum(['smooth', 'linear', 'snappy', 'dramatic']).default('smooth'),
-        project_track: z.number().int().min(0).optional()
+        project_track: z.number().int().min(0).optional(),
+        focus: z.union([Point, z.array(Point).min(1).max(8)]).optional()
+          .describe('Point [x, y] (0-1 from the top-left) zooms aim at, or one per step of a multi-step move'),
+        fill: z.enum(['auto', 'blur', 'none']).default('auto')
       }).strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
     },
@@ -535,9 +549,11 @@ Args:
         const r = await apiClient.request('/add_camera_move', 'POST', params, C.CameraMoveResult);
         if (!r.success) throw new Error(r.error);
         const p = r.result;
-        return text(p.kind === 'effect'
-          ? `Added ${p.move} (effect) from ${params.start}s to ${params.end}s.`
-          : `Added ${p.move} from ${params.start}s to ${params.end}s on ${p.clips} clip(s).`);
+        if (p.kind === 'effect') return text(`Added ${p.move} (effect) from ${params.start}s to ${params.end}s.`);
+        const extras = [p.effects ? `${p.effects} CapCut effect(s) inside the range` : '',
+          p.fill === 'blur' ? 'blurred background behind the clip' : ''].filter(Boolean).join(', ');
+        return text(`Added ${p.move} from ${params.start}s to ${params.end}s on ${p.clips} clip(s)` +
+          (extras ? ` (${extras}).` : '.'));
       } catch (error) {
         return fail(error);
       }

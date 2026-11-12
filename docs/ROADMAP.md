@@ -180,8 +180,21 @@ contribution, with a regression test for head, ranges, gaps and tail).
 - Trial on a copy of a real project: 15 frames over 140 s in under 2 s. They showed what the
   transcript cannot: a stretch where the other speaker is on screen, a camera menu over the first
   seconds, little room above the head (a centred 118% punch-in would cut it).
-- Next: propose moves from transcript and frames together, then zooms centred on the subject
-  (position keyframes) when the subject is off centre.
+- Next: propose moves from transcript and frames together.
+
+**A library of professional camera movements** (0.10.0)
+- 50 new moves, each rebuilt from frame-by-frame measurements of reference footage (zoom, offset
+  and rotation per frame, registered to the first frame; entry, hold and exit timed separately),
+  then checked by rendering the kit's own curves on the same first frame and measuring them the
+  same way: zoom within 2-3% of the reference on the moves checked one by one.
+- `focus` aims zooms at a point (one per step for multi-target moves); a cover zoom keeps every
+  canvas edge filled under rotation and offsets (one factor for slides, so their shape is kept);
+  moves that shrink the image get a blurred background on a new draft's bottom track; black frames
+  between jump cuts are alpha keyframes; CapCut effects are timed inside the move.
+- Differences from the references: zoom-outs start from a closer framing instead of shrinking the
+  image with mirrored edges (start them on a cut); slides travel half as far; there is no echo
+  trail effect in CapCut's catalog (a motion blur stands in); speed changes are not reproduced.
+- Next: check every effect-based move by eye in CapCut, then a sample project with all moves.
 
 Seen in the projects analysed (read-only copies, 10 projects, 379 clips): video/photo/audio clips
 carry six kinds of material references (speeds, canvases, placeholder infos, sound channel

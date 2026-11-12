@@ -90,6 +90,11 @@ BUILDERS: Dict[str, Callable[[float, float, Callable], Points]] = {
 }
 
 
+from camera_presets import PRESETS, EFFECTS  # noqa: E402  (the preset library, same builder shape)
+
+BUILDERS.update(PRESETS)
+
+
 def _steps(d: float, step: float) -> List[float]:
     n = max(1, int(d / step))
     return [d * i / n for i in range(n + 1)]
@@ -102,6 +107,12 @@ KEYFRAME_MOVES: Dict[str, Tuple[str, Callable[[float, float, Callable], Points]]
     m["name"]: (m["description"], BUILDERS[m["name"]]) for m in _CATALOG["keyframes"]}
 if set(KEYFRAME_MOVES) != set(BUILDERS):
     raise RuntimeError(f"camera_moves.json and BUILDERS disagree: {sorted(set(BUILDERS) ^ set(KEYFRAME_MOVES))}")
+# Presets that shrink the image on purpose (no cover zoom; a blurred background where CapCut allows it)
+FILL_MOVES = {m["name"] for m in _CATALOG["keyframes"] if m.get("fill")}
+# Presets whose zoom rises as needed so rotation and offsets never show the canvas behind
+COVER_MOVES = {m["name"] for m in _CATALOG["keyframes"] if m.get("cover")}
+# ...by one factor for the whole move, so its shape is kept (slides, steady moves)
+COVER_UNIFORM = {m["name"] for m in _CATALOG["keyframes"] if m.get("cover") == "uniform"}
 # Moves made with CapCut's own effects (scene effects, on an effect track): name -> (effect, description)
 EFFECT_MOVES: Dict[str, Tuple[str, str]] = {m["name"]: (m["capcut_effect"], m["description"]) for m in _CATALOG["effects"]}
 
@@ -111,7 +122,7 @@ def list_moves() -> List[dict]:
             [{"name": n, "kind": "effect", "description": f"{desc} (CapCut effect {eff})"} for n, (eff, desc) in EFFECT_MOVES.items()])
 
 
-NEUTRAL = {"scale": 1.0, "x": 0.0, "y": 0.0, "rotation": 0.0}
+NEUTRAL = {"scale": 1.0, "x": 0.0, "y": 0.0, "rotation": 0.0, "alpha": 1.0}
 EDGE = 0.001  # seconds
 
 
@@ -121,7 +132,8 @@ def _fit(points: List[Tuple[float, float]], d: float) -> List[Tuple[float, float
     longest = max(t for t, _ in points)
     factor = d / longest if longest > d else 1.0
     out: List[Tuple[float, float]] = []
-    for t, v in sorted(((max(0.0, t) * factor, v) for t, v in points), key=lambda p: p[0]):
+    # times on whole microseconds, as CapCut stores them, so every later step samples the same instants
+    for t, v in sorted(((round(max(0.0, t) * factor, 6), v) for t, v in points), key=lambda p: p[0]):
         if out and abs(out[-1][0] - t) < 1e-9:
             out[-1] = (t, v)
         else:
@@ -193,6 +205,8 @@ def _targets(seg, prop: str):
         return [(Keyframe_property.position_x, cs.transform_x, add)]
     if prop == "y":
         return [(Keyframe_property.position_y, cs.transform_y, add)]
+    if prop == "alpha":
+        return [(Keyframe_property.alpha, getattr(cs, "alpha", 1.0), mul)]
     return [(Keyframe_property.rotation, cs.rotation, add)]
 
 
@@ -241,7 +255,7 @@ def _apply_keyframe_move(overlaps, curves, mode: str, s_us: int):
 
                 # sample at the overlap's edges, the move's own points, and (when composing) the
                 # existing keyframes inside the range so their shape is kept
-                times = {a, b} | {s_us + int(t * 1e6) - seg_start for t, _ in pts}
+                times = {a, b} | {s_us + round(t * 1e6) - seg_start for t, _ in pts}
                 if mode == "compose" and existing:
                     times |= {k.time_offset for k in existing.keyframes}
                 # replace: where the range ends inside the clip, keep the old curve's value on the
@@ -271,7 +285,7 @@ class _JsonClip:
         sc, tr = clip.get("scale") or {}, clip.get("transform") or {}
         self.clip_settings = SimpleNamespace(scale_x=sc.get("x", 1.0), scale_y=sc.get("y", 1.0),
                                              transform_x=tr.get("x", 0.0), transform_y=tr.get("y", 0.0),
-                                             rotation=clip.get("rotation", 0.0))
+                                             rotation=clip.get("rotation", 0.0), alpha=clip.get("alpha", 1.0))
         self.uniform_scale = (seg.get("uniform_scale") or {}).get("on", True)
         t = seg["target_timerange"]
         self.target_timerange = SimpleNamespace(start=t["start"], duration=t["duration"], end=t["start"] + t["duration"])
@@ -346,9 +360,142 @@ def _move_existing_clips(base: dict, project_track, curves, mode: str, s_us: int
     return len(overlaps), ti
 
 
+def _focus_points(focus) -> List[Tuple[float, float]]:
+    """Focus points (0-1 from the top-left, as positions elsewhere) as offsets from the centre in
+    half-canvas units (+y up)."""
+    if focus is None:
+        return [(0.0, 0.0)]
+    pts = [focus] if focus and isinstance(focus[0], (int, float)) else list(focus)
+    out = []
+    for p in pts:
+        if len(p) != 2 or not all(isinstance(v, (int, float)) and math.isfinite(v) and 0 <= v <= 1 for v in p):
+            raise ValueError("focus is a point [x, y] (0-1 from the top-left), or a list of them for multi-step moves")
+        out.append((2 * p[0] - 1, 1 - 2 * p[1]))
+    return out or [(0.0, 0.0)]
+
+
+def _cover(s: float, x: float, y: float, rot: float, aspect: float) -> float:
+    """The least scale at which an image the canvas's shape, moved by (x, y) half-canvas units and
+    turned rot degrees clockwise, still covers every corner of the canvas."""
+    th = math.radians(rot)
+    need = 0.0
+    for cx in (-1, 1):
+        for cy in (-1, 1):
+            vx, vy = (cx - x) * aspect, cy - y
+            ux = vx * math.cos(th) - vy * math.sin(th)
+            uy = vx * math.sin(th) + vy * math.cos(th)
+            need = max(need, abs(ux) / aspect, abs(uy))
+    return need
+
+
+def move_curves(move: str, d: float, intensity: float, easing: str, focus=None, aspect: float = 16 / 9):
+    """The relative curves of a keyframe move over d seconds, aimed at the focus point(s) and, for
+    covered presets, zoomed as much as their rotation and offsets need."""
+    raw = KEYFRAME_MOVES[move][1](d, intensity, _easer(easing))
+    steps = raw.pop("_steps", None) or [0.0]
+    curves = {prop: _fit(pts, d) for prop, pts in raw.items()}
+    targets = _focus_points(focus)
+    aimed = any(t != (0.0, 0.0) for t in targets)
+    if (aimed and "scale" in curves) or move in COVER_MOVES:
+        times = {t for pts in curves.values() for t, _ in pts}
+        if len(targets) > 1:
+            blend = min(0.3, d / (2 * len(steps)))
+            times |= {t for s0 in steps[1:] for t in (s0, min(d, s0 + blend))}
+        times = sorted(times)
+        times = sorted(set(times) | {(a + b) / 2 for a, b in zip(times, times[1:])})
+
+        def target(t):
+            """The focus point at t: each step's own, eased over the start of its zoom."""
+            i = max(0, max(j for j, s0 in enumerate(steps) if s0 <= t + 1e-9))
+            fx, fy = targets[min(i, len(targets) - 1)]
+            if i and len(targets) > 1:
+                blend = min(0.3, d / (2 * len(steps)))
+                px, py = targets[min(i - 1, len(targets) - 1)]
+                f = min(1.0, (t - steps[i]) / blend)
+                fx, fy = px + (fx - px) * f, py + (fy - py) * f
+            return fx, fy
+
+        val = {prop: [_interp(curves[prop], t) if prop in curves else NEUTRAL[prop] for t in times]
+               for prop in ("scale", "x", "y", "rotation")}
+        own_x, own_y = list(val["x"]), list(val["y"])
+        aims = [target(t) if aimed else (0.0, 0.0) for t in times]
+        # The offsets that keep the focus still depend on the scale, and the cover zoom on the
+        # offsets: a few rounds settle both (the cover only ever raises the scale)
+        for _ in range(6):
+            val["x"] = [x + fx * (1 - s) for x, (fx, _), s in zip(own_x, aims, val["scale"])]
+            val["y"] = [y + fy * (1 - s) for y, (_, fy), s in zip(own_y, aims, val["scale"])]
+            if move not in COVER_MOVES:
+                break
+            # where the cover has to zoom, a hair above the exact need, for the straight lines CapCut
+            # draws between keyframes
+            need = [_cover(s, x, y, r, aspect) for s, x, y, r in zip(val["scale"], val["x"], val["y"], val["rotation"])]
+            need = [n * 1.001 if n > s + 1e-9 else n for n, s in zip(need, val["scale"])]
+            if move in COVER_UNIFORM:
+                factor = max([1.0] + [n / s for n, s in zip(need, val["scale"])])
+                val["scale"] = [s * factor for s in val["scale"]]
+            else:
+                val["scale"] = [max(s, n) for s, n in zip(val["scale"], need)]
+        for prop in ("scale", "x", "y"):
+            if prop in curves or any(abs(v - NEUTRAL[prop]) > 1e-9 for v in val[prop]):
+                curves[prop] = list(zip(times, val[prop]))
+    return {prop: _anchored(pts, d, NEUTRAL[prop]) for prop, pts in curves.items()}
+
+
+def _fx_params(effect: str, values: Dict[str, float]):
+    """CapCut effect parameters (0-100 each, None = default) from {name: value in its range}."""
+    meta = CapCut_Video_scene_effect_type[effect].value
+    if not values:
+        return None
+    out = [None] * len(meta.params)
+    for i, p in enumerate(meta.params):
+        if p.name in values:
+            v = min(p.max_value, max(p.min_value, values[p.name]))
+            out[i] = (v - p.min_value) / (p.max_value - p.min_value) * 100
+    return out
+
+
+def _move_extras(draft_id: str, script, move: str, start: float, end: float, segments, fill: str) -> dict:
+    """The CapCut effects a preset times inside its range, and the blurred background of the presets
+    that shrink the image (new drafts' clips on the bottom video track only)."""
+    from add_effect_impl import add_effect_impl
+    d = end - start
+    raw = KEYFRAME_MOVES[move][1](d, 1.0, _easer("smooth"))
+    layers = EFFECTS[move](d, raw.get("_steps") or [0.0]) if move in EFFECTS else []
+    added, ends = 0, {}
+    # one track per effect; on a short range two windows of one effect can meet: the later one
+    # starts where the earlier ends, and is left out if too little of it remains
+    for effect, a, b, values in sorted(layers, key=lambda layer: (layer[0], layer[1])):
+        a = max(a, ends.get(effect, 0.0))
+        if b - a < MIN_DURATION:
+            continue
+        add_effect_impl(effect_type=effect, effect_category="scene", start=start + a, end=start + b,
+                        draft_id=draft_id, track_name=f"camera_fx_{effect.lower()}", params=_fx_params(effect, values))
+        ends[effect] = b
+        added += 1
+    filled = "none"
+    if move in FILL_MOVES and fill != "none" and _fillable(script, segments):
+        for seg in segments:
+            if getattr(seg, "background_filling", None) is None:
+                seg.add_background_filling("blur", 0.375)
+        filled = "blur"
+    return {"effects": added, "fill": filled}
+
+
+def _fillable(script, segments) -> bool:
+    """CapCut draws a clip's own background only on the bottom video track."""
+    bottom = next((t for t in script.tracks.values() if t.track_type == draft.Track_type.video), None)
+    return bool(segments) and bottom is not None and all(seg in bottom.segments for seg in segments)
+
+
+def _check_fill(move: str, fill: str, script, segments):
+    if move in FILL_MOVES and fill == "blur" and not _fillable(script, segments):
+        raise ValueError("A blurred background is possible only for clips this draft added on its bottom video "
+                         "track: use fill 'auto' or 'none'")
+
+
 def add_camera_move(draft_id: str, move: str, start: float, end: float, intensity: float = 1.0,
                     track_name: str = "video_main", flash: bool = False, mode: str = "compose",
-                    easing: str = "smooth", project_track=None) -> dict:
+                    easing: str = "smooth", project_track=None, focus=None, fill: str = "auto") -> dict:
     if start < 0 or end <= start:
         raise ValueError("Need 0 <= start < end")
     if end - start < MIN_DURATION:
@@ -357,6 +504,9 @@ def add_camera_move(draft_id: str, move: str, start: float, end: float, intensit
         raise ValueError("mode must be compose, replace or refuse")
     if easing not in EASINGS:
         raise ValueError(f"easing must be one of {', '.join(EASINGS)}")
+    if fill not in ("auto", "blur", "none"):
+        raise ValueError("fill must be auto, blur or none")
+    _focus_points(focus)  # checked before anything changes
     if move not in KEYFRAME_MOVES and move not in EFFECT_MOVES:
         raise ValueError(f"Unknown move {move}: see the list in capcut_add_camera_move")
     draft_id, script = get_or_create_draft(draft_id=draft_id)
@@ -374,16 +524,16 @@ def add_camera_move(draft_id: str, move: str, start: float, end: float, intensit
     base = getattr(script, "base_project", None)
     if base and (project_track is not None or track_name not in script.tracks):
         # A project opened with capcut_open_project: animate its own clips, recorded as edits
-        d = end - start
-        curves = {prop: _anchored(pts, d, NEUTRAL[prop])
-                  for prop, pts in KEYFRAME_MOVES[move][1](d, intensity, _easer(easing)).items()}
+        _check_fill(move, fill, script, None)
+        curves = move_curves(move, end - start, intensity, easing, focus, script.width / script.height)
         clips, ti = _move_existing_clips(base, project_track, curves, mode, int(start * 1e6), int(end * 1e6),
                                          start, end)
+        extras = _move_extras(draft_id, script, move, start, end, None, fill)
         if flash:
             add_effect_impl(effect_type="White_Flash", effect_category="scene", start=start,
                             end=min(end, start + 0.25), draft_id=draft_id, track_name="camera_fx_flash")
         return {"draft_id": draft_id, "draft_url": generate_draft_url(draft_id), "move": move,
-                "kind": "keyframes", "clips": clips, "mode": mode, "project_track": ti}
+                "kind": "keyframes", "clips": clips, "mode": mode, "project_track": ti, **extras}
 
     track = script.tracks.get(track_name)
     if track is None or track.track_type != draft.Track_type.video:
@@ -392,9 +542,7 @@ def add_camera_move(draft_id: str, move: str, start: float, end: float, intensit
     # Keyframes queued with capcut_add_keyframe become real first, so the move composes with them
     track.process_pending_keyframes()
 
-    d = end - start
-    curves = {prop: _anchored(pts, d, NEUTRAL[prop])
-              for prop, pts in KEYFRAME_MOVES[move][1](d, intensity, _easer(easing)).items()}
+    curves = move_curves(move, end - start, intensity, easing, focus, script.width / script.height)
     s_us, e_us = int(start * 1e6), int(end * 1e6)
     overlaps = []
     for seg in track.segments:
@@ -405,11 +553,13 @@ def add_camera_move(draft_id: str, move: str, start: float, end: float, intensit
     if not overlaps:
         raise ValueError(f"No clip on track {track_name} between {start}s and {end}s")
 
+    _check_fill(move, fill, script, [seg for seg, _, _ in overlaps])
     _apply_keyframe_move(overlaps, curves, mode, s_us)
+    extras = _move_extras(draft_id, script, move, start, end, [seg for seg, _, _ in overlaps], fill)
 
     if flash:
         add_effect_impl(effect_type="White_Flash", effect_category="scene", start=start,
                         end=min(end, start + 0.25), draft_id=draft_id, track_name="camera_fx_flash")
 
     return {"draft_id": draft_id, "draft_url": generate_draft_url(draft_id), "move": move,
-            "kind": "keyframes", "clips": len(overlaps), "mode": mode}
+            "kind": "keyframes", "clips": len(overlaps), "mode": mode, **extras}
