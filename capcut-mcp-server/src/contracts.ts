@@ -193,11 +193,24 @@ export const CameraMoveResult = DraftRefResult.extend({
   project_track: z.number().optional()
 });
 
+export const FramesResult = z.object({
+  of: z.string(),
+  timeline: z.boolean(),
+  frames: z.array(z.object({
+    time: z.number(),
+    source: z.string().optional(),
+    source_time: z.number().optional(),
+    image: z.string().optional(),
+    note: z.string().optional()
+  }))
+});
+
 /** Every contract by name: exported to vectcut-api/tests/contracts.json for the backend's tests. */
 export const CONTRACTS = {
   DraftRefResult, CreateDraftResult, SaveDraftResult, DurationResult, ListTypesResult,
   ListProjectsResult, OpenProjectResult, TranscribeResult, SpeechRangesResult, WithoutPausesResult,
-  AutoSubtitlesResult, MusicResult, TimelineResult, CameraMoveResult, ClipListResult, EditClipResult
+  AutoSubtitlesResult, MusicResult, TimelineResult, CameraMoveResult, ClipListResult, EditClipResult,
+  FramesResult
 } as const;
 
 export type DraftRef = z.infer<typeof DraftRefResult>;

@@ -173,6 +173,16 @@ which CapCut also uses to name the project's timeline: a risk once projects sync
 A text shadow now applies to every styled range of a title, not only the first (first external
 contribution, with a regression test for head, ranges, gaps and tail).
 
+**Seeing the footage before choosing moves** (0.9.0)
+- `capcut_view_frames`: still frames of a file or of the timeline (the clip on a video track at
+  each moment, through cuts and speed; cloud projects' media paths too), at given times or every N
+  seconds, at most 24 per call. The end of a piece shows its own last frame, not what was cut.
+- Trial on a copy of a real project: 15 frames over 140 s in under 2 s. They showed what the
+  transcript cannot: a stretch where the other speaker is on screen, a camera menu over the first
+  seconds, little room above the head (a centred 118% punch-in would cut it).
+- Next: propose moves from transcript and frames together, then zooms centred on the subject
+  (position keyframes) when the subject is off centre.
+
 Seen in the projects analysed (read-only copies, 10 projects, 379 clips): video/photo/audio clips
 carry six kinds of material references (speeds, canvases, placeholder infos, sound channel
 mappings, colors, vocal separations), plus transitions and animations on a few; keyframes are

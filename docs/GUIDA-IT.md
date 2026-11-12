@@ -54,6 +54,12 @@ nascondere i salti. I movimenti si sommano ai keyframe già presenti; per rifare
 stesso tratto si usa `mode: "replace"`. `easing` sceglie l'andamento: morbido (smooth), lineare,
 scattante (snappy) o drammatico (dramatic).
 
+Prima di scegliere i movimenti l'assistente può guardare il video: `capcut_view_frames` estrae
+fotogrammi da un file o dalla timeline, nei momenti indicati o uno ogni tot secondi (al massimo 24
+per volta). Così vede dove sei nel quadro e quanto spazio c'è sopra la testa, e sceglie uno zoom
+che non ti taglia. I fotogrammi mostrano il girato com'è: keyframe, effetti e titoli di CapCut non
+ci sono.
+
 ## Progetti esistenti
 
 Si può aggiungere a un progetto fatto in CapCut: chiedi per esempio "apri il progetto *Intervista*

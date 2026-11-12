@@ -991,5 +991,49 @@
       "notes"
     ],
     "additionalProperties": true
+  },
+  "FramesResult": {
+    "type": "object",
+    "properties": {
+      "of": {
+        "type": "string"
+      },
+      "timeline": {
+        "type": "boolean"
+      },
+      "frames": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "time": {
+              "type": "number"
+            },
+            "source": {
+              "type": "string"
+            },
+            "source_time": {
+              "type": "number"
+            },
+            "image": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "time"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "of",
+      "timeline",
+      "frames"
+    ],
+    "additionalProperties": false
   }
 }

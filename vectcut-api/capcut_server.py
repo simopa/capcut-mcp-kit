@@ -34,6 +34,7 @@ import media_analysis
 import existing_project
 import music
 import camera_moves
+import frames
 from add_effect_impl import add_effect_impl
 from add_sticker_impl import add_sticker_impl
 from create_draft import create_draft
@@ -1737,6 +1738,14 @@ def add_auto_subtitles():
         return {"draft_id": d["draft_id"], "subtitles": count, "first": srt.split("\n\n", 1)[0]}
     return _media_route(run)
 
+
+
+@app.route('/view_frames', methods=['POST'])
+def view_frames():
+    return _media_route(lambda d: frames.view_frames(
+        path=d.get("path"), draft_id=d.get("draft_id"), times=d.get("times"), every=d.get("every"),
+        start=float(d.get("start", 0)), end=d.get("end"), width=int(d.get("width", 360)),
+        track_name=d.get("track_name"), project_track=d.get("project_track")))
 
 
 @app.route('/camera_moves', methods=['GET'])

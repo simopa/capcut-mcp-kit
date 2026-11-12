@@ -129,6 +129,9 @@ def test_media_routes_match_their_contracts(env, monkeypatch):
     reply(env, "/detect_pauses", "SpeechRangesResult", path=env.clip, method="audio")
     d = reply(env, "/create_draft", "CreateDraftResult", width=1080, height=1920)["draft_id"]
     reply(env, "/add_video_without_pauses", "WithoutPausesResult", draft_id=d, video_url=env.clip, method="audio")
+    reply(env, "/view_frames", "FramesResult", path=env.clip, times=[1])
+    frames = reply(env, "/view_frames", "FramesResult", draft_id=d, times=[0.5, 60])["frames"]
+    assert frames[0]["image"] and "note" in frames[1]
     monkeypatch.setattr(media_analysis, "timeline_words", lambda *a: [{"word": "Ciao.", "start": 0.2, "end": 0.6}])
     reply(env, "/add_auto_subtitles", "AutoSubtitlesResult", draft_id=d, video_url=env.clip)
 
@@ -151,6 +154,7 @@ def test_project_routes_match_their_contracts(env):
     assert [c["id"] for c in clips["clips"]] == ["SEG-1"] and clips["clips"][0]["editable"]
     reply(env, "/edit_clip", "EditClipResult", draft_id=d, clip_id="SEG-1", trim_end=1)
     reply(env, "/add_camera_move", "CameraMoveResult", draft_id=d, move="push_in", start=0, end=1)
+    reply(env, "/view_frames", "FramesResult", draft_id=d, times=[0.5])
     reply(env, "/add_video_keyframe", "DraftRefResult", draft_id=d, property_types=["alpha"], times=[0.5],
           values=["50%"])
     saved = reply(env, "/save_draft", "SaveDraftResult", draft_id=d)

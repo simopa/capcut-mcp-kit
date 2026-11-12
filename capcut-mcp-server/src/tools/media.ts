@@ -424,6 +424,66 @@ only these clips changed.`,
   );
 
   server.registerTool(
+    'capcut_view_frames',
+    {
+      title: 'View Frames',
+      description: `Look at still frames of the footage, to see the framing before choosing camera moves:
+where the subject is, the room above the head, movement, scene changes.
+
+Either a local file (times of the file) or a draft (times of the timeline: the clip on a video track
+at each moment, default "video_main", or for a project opened with capcut_open_project its main
+track, or project_track). Frames show the footage as filmed: CapCut's keyframes, camera moves,
+effects and titles are not drawn on them.
+
+Ask for times (e.g. the moments where a move might go) or every N seconds over start-end for an
+overview. At most 24 frames per call; each frame at the default width costs about as much as a
+page of text, so prefer a few well-chosen times.
+
+Args:
+  - path (string) or draft_id (string)
+  - times (number[]): Seconds; or every (number) with start / end (default: the whole file or track)
+  - width (number): Frame width in pixels, 160-960 (default 360)
+  - track_name (string) / project_track (number): Video track of the draft / of the opened project`,
+      inputSchema: z.object({
+        path: LocalPath.optional(),
+        draft_id: z.string().min(1).optional(),
+        times: z.array(z.number().min(0)).min(1).max(24).optional(),
+        every: z.number().positive().optional(),
+        start: z.number().min(0).default(0),
+        end: z.number().positive().optional(),
+        width: z.number().int().min(160).max(960).default(360),
+        track_name: z.string().min(1).optional(),
+        project_track: z.number().int().min(0).optional()
+      }).strict(),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    async (params) => {
+      try {
+        if ((params.path === undefined) === (params.draft_id === undefined)) {
+          throw new Error('Give either path (times of the file) or draft_id (times of the timeline)');
+        }
+        if ((params.times === undefined) === (params.every === undefined)) {
+          throw new Error('Give either times or every');
+        }
+        const r = await apiClient.request('/view_frames', 'POST', params, C.FramesResult);
+        if (!r.success) throw new Error(r.error);
+        const p = r.result;
+        const content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }> = [
+          { type: 'text', text: `Frames of ${p.of} (${p.frames.length}, times of the ${p.timeline ? 'timeline' : 'file'}):` }
+        ];
+        for (const f of p.frames) {
+          const src = p.timeline && f.source ? ` — ${f.source} at ${clock(f.source_time ?? 0)}` : '';
+          content.push({ type: 'text', text: `${clock(f.time)}${src}${f.note ? `: ${f.note}` : ''}` });
+          if (f.image) content.push({ type: 'image', data: f.image, mimeType: 'image/jpeg' });
+        }
+        return { content };
+      } catch (error) {
+        return fail(error);
+      }
+    }
+  );
+
+  server.registerTool(
     'capcut_add_camera_move',
     {
       title: 'Add Camera Move',
@@ -443,8 +503,9 @@ starting framing. easing shapes keyframe moves: smooth (default), linear, snappy
 landing), dramatic (slow-fast-slow). For effect moves, intensity scales the effect's strength.
 
 Use the transcript to place moves on meaningful moments: a punch_in on a key sentence, a punch on
-a strong word, push_in during a build-up, shake on an emotional beat. Don't overdo it: a move every
-10-20 seconds reads as edited, constant motion reads as noise.
+a strong word, push_in during a build-up, shake on an emotional beat. Look at the framing first with
+capcut_view_frames: little room above the head calls for a lower intensity. Don't overdo it: a move
+every 10-20 seconds reads as edited, constant motion reads as noise.
 
 Args:
   - draft_id (string), move (string)

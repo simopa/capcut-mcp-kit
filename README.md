@@ -121,6 +121,7 @@ starts it again if it stops. Its log is `vectcut-api/server.log`. To start it by
 | `capcut_add_video_without_pauses` | Add a video with its pauses removed (jump cuts), in one call |
 | `capcut_add_auto_subtitles` | Subtitles from the transcript, short social-style lines, aligned to the edit |
 | `capcut_add_camera_move` | Professional virtual camera moves over a time range: punch-in, zoom in/out, push, pull, punch, bounce, pans, tilts, rotate-in, dutch tilt, handheld drift, whips (keyframes, continuous across cuts) and CapCut effects (shake, lens zoom, fisheye, focus pull, flash, glitch…) |
+| `capcut_view_frames` | Still frames of a file or of the timeline (at given times or every N seconds), so the assistant sees the framing before choosing camera moves |
 
 Conventions:
 

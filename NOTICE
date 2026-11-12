@@ -98,6 +98,8 @@ vectcut-api/
   - pyJianYingDraft/video_segment.py: a clip with no speed given gets the documented 1.0
     (it was written as null). draft_profiles.py: the CapCut profile also writes the
     timeline to template-2.tmp, so the copies of a saved project agree.
+  - frames.py (new), capcut_server.py: /view_frames, still frames of a file or of a
+    draft's video track (timeline times mapped through cuts and speed) with ffmpeg.
   - The upstream mcp-server/ folder (a copy of the project below) is not included.
 
 ------------------------------------------------------------------------
@@ -122,6 +124,7 @@ capcut-mcp-server/
   - capcut_list_projects and capcut_open_project (add to an existing project).
   - capcut_add_background_music, capcut_get_timeline; auto_track on the add tools.
   - capcut_list_clips (clips of an opened project, editable or not), capcut_edit_clip (trim, move).
+  - capcut_view_frames: frames returned as images, each after a line with its time.
   - Shorter tool descriptions (arguments are described once, in the schema); the camera
     move list comes from vectcut-api/camera_moves.json; transcripts are paged by the backend.
   - services/backend.ts: the autostart checks the backend's identity and API version,
