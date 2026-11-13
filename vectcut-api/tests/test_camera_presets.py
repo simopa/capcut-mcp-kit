@@ -68,12 +68,12 @@ def test_every_preset_writes_clean_keyframes_inside_its_range(move, length):
     for prop, kfs in lists(seg).items():
         offsets = [t for t, _ in kfs]
         assert offsets == sorted(set(offsets)), (move, prop)
-        assert all(a <= t <= b for t in offsets), (move, prop)
+        assert all(a - 1000 <= t <= b for t in offsets), (move, prop)  # a cut-in sits 1 ms before
         assert all(math.isfinite(v) for _, v in kfs), (move, prop)
         static = {KP.scale_x: 1.0, KP.position_x: 0.0, KP.position_y: 0.0, KP.rotation: 0.0, KP.alpha: 1.0}[prop]
         # outside the range the clip keeps its own framing
-        assert value(kfs, a) == pytest.approx(static, abs=1e-6) and value(kfs, b) == pytest.approx(static, abs=1e-6), \
-            (move, prop)
+        assert value(kfs, a - 1000) == pytest.approx(static, abs=1e-6), (move, prop)
+        assert value(kfs, b) == pytest.approx(static, abs=1e-6), (move, prop)
 
 
 @pytest.mark.parametrize("move", sorted(cm.COVER_MOVES))
@@ -134,7 +134,8 @@ def test_presets_add_their_effects_at_the_right_times():
     assert effect_spans(script, "camera_fx_white_flash") == [(round(2 + i * span, 2), round(2 + i * span + 0.25, 2))
                                                              for i in range(3)]
     cm.add_camera_move(draft_id, "blur_push", 10, 15)
-    assert effect_spans(script, "camera_fx_blur") == [(10.0, 11.0), (13.9, 14.5)]
+    # the blur comes in after a beat, peaks during the zoom and is gone by 1.1 s
+    assert effect_spans(script, "camera_fx_blur") == [(10.35, 11.1), (13.9, 14.5)]
 
 
 def test_moves_that_shrink_the_image_get_a_blurred_background():
@@ -186,3 +187,19 @@ def test_presets_work_on_an_opened_project(tmp_path, monkeypatch):
     edit = get_draft(d).base_project["edits"][-1]
     props = {kl["property_type"] for kl in edit["fields"]["common_keyframes"]["new"]}
     assert {"KFTypeScaleX", "KFTypeAlpha", "KFTypePositionY"} <= props
+
+
+@pytest.mark.parametrize("at_start", [True, False])
+def test_the_first_frame_of_a_move_shows_the_move(at_start):
+    """A zoom out starts from a closer framing: its first frame is already close, both on a cut (the
+    clip's start, nothing before it) and inside a clip (cut in 1 ms before the range)."""
+    draft_id, script = make_draft()
+    start = 0 if at_start else 2
+    cm.add_camera_move(draft_id, "drift_out", start, start + 3)
+    kfs = lists(script.tracks["video_main"].segments[0])[KP.scale_x]
+    a = int(start * 1e6)
+    assert value(kfs, a) == pytest.approx(1.25)
+    if at_start:
+        assert kfs[0] == (0, pytest.approx(1.25))
+    else:
+        assert value(kfs, a - 1000) == pytest.approx(1.0) and value(kfs, a - 40_000) == pytest.approx(1.0)

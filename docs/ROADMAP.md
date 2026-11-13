@@ -196,6 +196,9 @@ contribution, with a regression test for head, ranges, gaps and tail).
   back the keyframes its clips had in its range and removes its effects and blurred background (a
   later move over the same stretch has to go first). Moves saved in an earlier session are plain
   keyframes by then and are not listed.
+- 0.11.1: a move that starts away from the clip's own framing (zoom-outs, slides, dark cuts) now cuts
+  in 1 ms before its range, so its first frame already shows the move (it showed one wide frame
+  first, visible when the move starts on a cut); blur_push's blur comes in after a beat.
 - Next: check every effect-based move by eye in CapCut, then a sample project with all moves.
 
 Seen in the projects analysed (read-only copies, 10 projects, 379 clips): video/photo/audio clips

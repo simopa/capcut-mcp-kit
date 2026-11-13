@@ -49,6 +49,17 @@ def test_a_move_is_listed_and_taken_off_completely():
     assert state(script) == before
 
 
+def test_a_move_that_cuts_in_inside_a_clip_comes_off_completely():
+    draft_id, script = make_draft()
+    cm.add_camera_move(draft_id, "drift_in", 0, 10)
+    before = state(script)
+    cm.add_camera_move(draft_id, "drift_out", 12, 15)  # starts closer: cuts in 1 ms before 12 s
+    cm.add_camera_move(draft_id, "glide_out", 4, 7)  # over the drift, same
+    cm.remove_camera_move(draft_id, "m3")
+    cm.remove_camera_move(draft_id, "m2")
+    assert state(script) == before
+
+
 def test_taking_off_restores_what_was_there_before():
     draft_id, script = make_draft()
     cm.add_camera_move(draft_id, "drift_in", 0, 10)

@@ -193,7 +193,7 @@
     },
     {
       "name": "scramble_in",
-      "description": "jittery, chaotic zoom in and out with motion blur",
+      "description": "jittery, scrambled zoom in and out with motion blur",
       "cover": true
     },
     {

@@ -145,10 +145,12 @@ def _fit(points: List[Tuple[float, float]], d: float) -> List[Tuple[float, float
 def _anchored(points: List[Tuple[float, float]], d: float, neutral: float) -> List[Tuple[float, float]]:
     """Make a curve start and end at the clip's own framing, so the move stays inside its range
     (CapCut interpolates between consecutive keyframes, i.e. into the next move otherwise).
-    A move that begins/ends away from neutral (pans, push_in...) cuts in/out at its edges."""
+    A move that begins/ends away from neutral (pans, push_in...) cuts in/out at its edges: the cut
+    in happens just before the range (at -EDGE), so the range's first frame already shows the move,
+    and the cut out at its end, so the frame after it shows the clip's own framing."""
     pts = _fit(points, d)
     if abs(pts[0][1] - neutral) > 1e-9:
-        pts = [(0.0, neutral), (EDGE, pts[0][1])] + [p for p in pts[1:] if p[0] > EDGE]
+        pts = [(-EDGE, neutral)] + pts
     if abs(pts[-1][1] - neutral) > 1e-9:
         pts = [p for p in pts[:-1] if p[0] < d - EDGE] + [(d - EDGE, pts[-1][1]), (d, neutral)]
     return pts
@@ -259,20 +261,29 @@ def _apply_keyframe_move(overlaps, curves, mode: str, s_us: int):
                 times = {a, b} | {s_us + round(t * 1e6) - seg_start for t, _ in pts}
                 if mode == "compose" and existing:
                     times |= {k.time_offset for k in existing.keyframes}
-                # replace: where the range ends inside the clip, keep the old curve's value on the
-                # edge and cut to the move just inside, so the animation outside is unchanged
-                keep = {}
-                if mode == "replace" and existing and existing.keyframes:
-                    for edge, inner, inside in ((a, a + edge_us, a > 0),
-                                                (b, b - edge_us, b < seg.target_timerange.duration)):
-                        old_v = _value_at(existing, edge, static)
-                        if inside and abs(old_v - value(edge)) > 1e-9:
-                            keep[edge] = old_v
-                            if a < inner < b:
-                                times.add(inner)
-                times = sorted(t for t in times if a <= t <= b)
+                old = existing is not None and bool(existing.keyframes)
+                # The move cuts in just before the range (its first frame shows the move) and out on
+                # its end (the next frame shows what was there), so the animation outside is unchanged:
+                # the cut-in keeps the old value 1 ms before the range, where the range starts inside
+                # the clip; at the clip's start there is nothing before to keep
+                keep, lo = {}, a
+                before = a - edge_us
+                if before >= 0 and a > 0:
+                    cuts_in = before in times  # the curve leaves the clip's framing at the range start
+                    if mode == "replace" and old and abs(_value_at(existing, a, static) - value(a)) > 1e-9:
+                        keep[before], cuts_in = _value_at(existing, before, static), True
+                    if cuts_in:
+                        times.add(before)
+                        lo = before
+                if mode == "replace" and old and b < seg.target_timerange.duration:
+                    old_v = _value_at(existing, b, static)
+                    if abs(old_v - value(b)) > 1e-9:
+                        keep[b] = old_v
+                        if a < b - edge_us < b:
+                            times.add(b - edge_us)
+                times = sorted(t for t in times if lo <= t <= b)
                 samples = [(off, keep[off] if off in keep else value(off)) for off in times]
-                _write(seg, kf_prop, samples, a, b)
+                _write(seg, kf_prop, samples, lo, b)
 
 
 class _JsonClip:
@@ -358,8 +369,9 @@ def _move_existing_clips(base: dict, project_track, curves, mode: str, s_us: int
     if not overlaps:
         raise ValueError(f"No clip on track {ti} of the project between {start}s and {end}s")
     if log is not None:
-        log["clips"] = [{"segment_id": seg["id"], "a": a, "b": b, "before": copy.deepcopy(seg.get("common_keyframes") or [])}
-                        for _, a, b, seg in overlaps]
+        # from 1 ms before the range: a move can cut in there
+        log["clips"] = [{"segment_id": seg["id"], "a": max(0, a - int(EDGE * 1e6)), "b": b,
+                         "before": copy.deepcopy(seg.get("common_keyframes") or [])} for _, a, b, seg in overlaps]
     _apply_keyframe_move([(w, a, b) for w, a, b, _ in overlaps], curves, mode, s_us)
     for wrapped, _, _, seg in overlaps:
         clip_edits.record_edit(base, seg["id"], {"common_keyframes": wrapped.export()})
@@ -585,8 +597,9 @@ def add_camera_move(draft_id: str, move: str, start: float, end: float, intensit
         raise ValueError(f"No clip on track {track_name} between {start}s and {end}s")
 
     _check_fill(move, fill, script, [seg for seg, _, _ in overlaps])
-    log["clips"] = [{"segment_id": seg.segment_id, "a": a, "b": b, "before": copy.deepcopy(seg.common_keyframes)}
-                    for seg, a, b in overlaps]
+    # from 1 ms before the range: a move can cut in there
+    log["clips"] = [{"segment_id": seg.segment_id, "a": max(0, a - int(EDGE * 1e6)), "b": b,
+                     "before": copy.deepcopy(seg.common_keyframes)} for seg, a, b in overlaps]
     _apply_keyframe_move(overlaps, curves, mode, s_us)
     extras = _move_extras(draft_id, script, move, start, end, [seg for seg, _, _ in overlaps], fill, log)
     flash_at_start()

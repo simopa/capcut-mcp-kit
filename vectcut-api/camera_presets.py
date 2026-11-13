@@ -283,7 +283,7 @@ EFFECTS: Dict[str, Callable[[float, List[float]], List[Layer]]] = {
     "lag_pull": lambda d, s: [("Stuck_Frame", 0, d, {})],
     "surge_snap": lambda d, s: [("Motion_Blur", max(0, d - 0.35), d, {"effects_adjust_intensity": 0.6})],
     "iris_in": lambda d, s: [("Vignette", 0, d, {}), ("Fisheye", 0, d, {"effects_adjust_distortion": 0.25})],
-    "blur_push": lambda d, s: [("Blur", 0, min(1.0, d / 3), {"effects_adjust_blur": 0.6}),
+    "blur_push": lambda d, s: [("Blur", min(0.35, d / 8), min(1.1, d / 3), {"effects_adjust_blur": 0.6}),
                                   ("Blur", max(0, d - 1.1), max(0, d - min(0.5, d / 4)), {"effects_adjust_blur": 0.6})],
     "blur_rumble": lambda d, s: [("Blur", 0, min(1.1, d / 3), {"effects_adjust_blur": 0.4}),
                                    ("Blur", max(0, d - 0.9), d, {"effects_adjust_blur": 0.4})],

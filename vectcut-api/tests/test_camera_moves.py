@@ -165,8 +165,11 @@ def test_replace_keeps_the_animation_outside_the_range():
     seg.add_keyframe(KP.scale_x, 10_000_000, 2.0)  # 1 -> 2 over the clip
     move(draft_id, "punch_in", 4, 6, mode="replace")
     times_unique(seg)
-    for t in (0, 1, 2, 3, 3.5, 4, 6, 6.5, 8, 10):
+    # up to 1 ms before the range and from its end on, the old animation; the range's first frame
+    # already shows the move
+    for t in (0, 1, 2, 3, 3.5, 3.999, 6, 6.5, 8, 10):
         assert at(seg, KP.scale_x, int(t * 1e6)) == pytest.approx(1 + t / 10), t
+    assert at(seg, KP.scale_x, 4_000_000) == pytest.approx(1.0)  # static framing, the punch about to start
     assert at(seg, KP.scale_x, 5_000_000) == pytest.approx(1.18)  # static framing * punch, inside
 
 
@@ -179,7 +182,7 @@ def test_replace_keeps_offsets_outside_and_ignores_clip_edges():
     move(draft_id, "pan_left", 3, 5, mode="replace")
     for seg in (first, second):
         times_unique(seg)
-    for t in (0, 1, 2.5, 3):
+    for t in (0, 1, 2.5, 2.999):
         assert at(first, KP.position_x, int(t * 1e6)) == pytest.approx(0.1 * t), t
     for t in (1, 2, 3, 4):
         assert at(second, KP.position_x, int(t * 1e6)) == pytest.approx(0.1 * t), t
