@@ -63,7 +63,8 @@ saltati). Lo zoom punta al centro o al punto `focus` che indichi (per esempio il
 bordi. Gli zoom indietro partono da un'inquadratura più stretta: falli cominciare su un taglio.
 I movimenti si chiedono a parole all'assistente; in CapCut restano keyframe ed effetti normali, che
 puoi ritoccare a mano. Finché lavori nella stessa bozza puoi anche chiedere di toglierli o spostarli
-("sposta il snap_in da 0:12 a 0:20"): il kit rimette i keyframe com'erano e porta con sé gli effetti.
+("sposta il snap_in da 0:12 a 0:20"), oppure ritoccarli di poco ("anticipalo di 3 fotogrammi",
+"allungalo di mezzo secondo"): il kit rimette i keyframe com'erano e porta con sé gli effetti.
 
 Prima di scegliere i movimenti l'assistente può guardare il video: `capcut_view_frames` estrae
 fotogrammi da un file o dalla timeline, nei momenti indicati o uno ogni tot secondi (al massimo 24

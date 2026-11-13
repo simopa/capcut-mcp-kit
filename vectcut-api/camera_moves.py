@@ -756,15 +756,32 @@ def remove_camera_move(draft_id: str, move_id: Optional[str] = None, start: Opti
             "moves": [_summary(e) for e in moves]}
 
 
-def move_camera_move(draft_id: str, move_id: str, start: float, end: Optional[float] = None,
-                     intensity: Optional[float] = None, focus=None) -> dict:
-    """Take a move off and place it again at start (same length unless end is given), with the
-    same settings unless intensity or focus are given."""
+def move_camera_move(draft_id: str, move_id: str, start: Optional[float] = None, end: Optional[float] = None,
+                     intensity: Optional[float] = None, focus=None, shift: Optional[float] = None,
+                     shift_frames: Optional[int] = None, extend: Optional[float] = None,
+                     extend_frames: Optional[int] = None) -> dict:
+    """Take a move off and place it again, with the same settings unless intensity or focus are given.
+    Where: start (absolute, seconds), or shift / shift_frames (earlier if negative), or neither (it
+    stays). Length: end (absolute), or extend / extend_frames (longer at its end, shorter if
+    negative), or neither (same length). Frames are the draft's own (its fps)."""
     from draft_store import get_draft
     script = get_draft(draft_id)
     entry = _logged(script, move_id)
+    fps = float(getattr(script, "fps", 30) or 30)
+    if sum(v is not None for v in (start, shift, shift_frames)) > 1:
+        raise ValueError("Give start, shift or shift_frames, not more than one")
+    if sum(v is not None for v in (end, extend, extend_frames)) > 1:
+        raise ValueError("Give end, extend or extend_frames, not more than one")
+    length = entry["end"] - entry["start"]
+    if start is None:
+        start = entry["start"] + (shift if shift is not None else (shift_frames or 0) / fps)
     if end is None:
-        end = start + (entry["end"] - entry["start"])
+        end = start + length + (extend if extend is not None else (extend_frames or 0) / fps)
+    start, end = round(start, 6), round(end, 6)
+    if start < 0:
+        raise ValueError(f"{move_id} would start at {start}s, before the timeline's start")
+    if end - start < MIN_DURATION:
+        raise ValueError(f"{move_id} would last {round(end - start, 3)}s: a camera move needs at least {MIN_DURATION}s")
     remove_camera_move(draft_id, move_id)
     out = add_camera_move(draft_id, entry["move"], start, end,
                           intensity=entry["intensity"] if intensity is None else intensity,

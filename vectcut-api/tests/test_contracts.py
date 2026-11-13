@@ -157,6 +157,8 @@ def test_project_routes_match_their_contracts(env):
     reply(env, "/view_frames", "FramesResult", draft_id=d, times=[0.5])
     reply(env, "/list_camera_moves", "CameraMoveListResult", draft_id=d)
     moved = reply(env, "/move_camera_move", "CameraMoveResult", draft_id=d, move_id="m1", start=0.2, end=1.0)
+    moved = reply(env, "/move_camera_move", "CameraMoveResult", draft_id=d, move_id=moved["move_id"],
+                  shift_frames=3, extend=-0.1)
     reply(env, "/remove_camera_move", "CameraMoveRemoveResult", draft_id=d, move_id=moved["move_id"])
     reply(env, "/add_video_keyframe", "DraftRefResult", draft_id=d, property_types=["alpha"], times=[0.5],
           values=["50%"])

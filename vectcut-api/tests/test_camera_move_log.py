@@ -150,3 +150,33 @@ def test_moves_on_an_opened_project_come_off_too(tmp_path, monkeypatch):
     assert json.dumps(clip_edits.current_content(base)["tracks"], sort_keys=True) == original
     assert all(not t.segments for t in draft_store.get_draft(d).tracks.values()
                if t.track_type == draft.Track_type.effect)
+
+
+def test_a_move_is_nudged_by_seconds_or_frames():
+    draft_id, script = make_draft()  # 30 fps
+    cm.add_camera_move(draft_id, "snap_in", 4, 6)
+    out = cm.move_camera_move(draft_id, "m1", shift_frames=-3)
+    assert (out["start"], out["end"]) == (pytest.approx(3.9), pytest.approx(5.9))
+    out = cm.move_camera_move(draft_id, out["move_id"], shift=0.6, extend=0.5)
+    assert (out["start"], out["end"]) == (pytest.approx(4.5), pytest.approx(7.0))
+    out = cm.move_camera_move(draft_id, out["move_id"], extend_frames=-15)
+    assert (out["start"], out["end"]) == (pytest.approx(4.5), pytest.approx(6.5))
+    out = cm.move_camera_move(draft_id, out["move_id"], end=8)  # where it is, longer
+    assert (out["start"], out["end"]) == (pytest.approx(4.5), 8)
+    # the result is the same as adding the move there in the first place
+    elsewhere = make_draft()
+    cm.add_camera_move(elsewhere[0], "snap_in", 4.5, 8)
+    assert state(script)[:3] == state(elsewhere[1])[:3]
+
+
+def test_a_nudge_that_cannot_be_done_changes_nothing():
+    draft_id, script = make_draft()
+    cm.add_camera_move(draft_id, "snap_in", 0.2, 1)
+    before = state(script)
+    for bad, match in (({"start": 2, "shift": 1}, "not more than one"),
+                       ({"extend": 1, "end": 3}, "not more than one"),
+                       ({"shift": -0.5}, "before the timeline's start"),
+                       ({"extend": -0.75}, "at least")):
+        with pytest.raises(ValueError, match=match):
+            cm.move_camera_move(draft_id, "m1", **bad)
+    assert state(script) == before and [m["id"] for m in cm.list_camera_moves(draft_id)["moves"]] == ["m1"]

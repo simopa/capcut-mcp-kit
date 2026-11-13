@@ -331,14 +331,22 @@ same stretch of the same clip is refused until the later one is taken off.`,
     'capcut_move_camera_move',
     {
       title: 'Move Camera Move',
-      description: `Place a camera move of this draft somewhere else: it is taken off and added again at start,
-with the same settings (and length, unless end is given); intensity or focus can change at the same time.
-The move gets a new id.`,
+      description: `Place a camera move of this draft somewhere else, exactly or by nudging it: it is taken off
+and added again with the same settings; intensity or focus can change at the same time. The move gets a new id.
+  - where: start (seconds on the timeline), or shift (seconds, negative = earlier), or shift_frames
+    (frames of the draft, negative = earlier); none = it stays where it is
+  - length: end (seconds), or extend (seconds added at its end, negative = shorter), or extend_frames;
+    none = same length
+E.g. "3 frames earlier": shift_frames -3; "half a second longer": extend 0.5.`,
       inputSchema: z.object({
         draft_id: z.string().min(1),
         move_id: z.string().min(1),
-        start: z.number().min(0),
+        start: z.number().min(0).optional(),
         end: z.number().positive().optional(),
+        shift: z.number().optional().describe('Seconds to move it by (negative = earlier)'),
+        shift_frames: z.number().int().optional().describe('Frames to move it by (negative = earlier)'),
+        extend: z.number().optional().describe('Seconds added at its end (negative = shorter)'),
+        extend_frames: z.number().int().optional().describe('Frames added at its end (negative = shorter)'),
         intensity: z.number().min(0.1).max(3).optional(),
         focus: z.union([Point, z.array(Point).min(1).max(8)]).optional()
       }).strict(),
@@ -346,6 +354,10 @@ The move gets a new id.`,
     },
     async (params) => {
       try {
+        const where = [params.start, params.shift, params.shift_frames].filter((v) => v !== undefined).length;
+        const length = [params.end, params.extend, params.extend_frames].filter((v) => v !== undefined).length;
+        if (where > 1) throw new Error('Give start, shift or shift_frames, not more than one');
+        if (length > 1) throw new Error('Give end, extend or extend_frames, not more than one');
         const r = await apiClient.request('/move_camera_move', 'POST', params, C.CameraMoveResult);
         if (!r.success) throw new Error(r.error);
         const p = r.result;

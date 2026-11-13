@@ -1780,10 +1780,14 @@ def remove_camera_move():
 @app.route('/move_camera_move', methods=['POST'])
 @transactional
 def move_camera_move():
-    return _media_route(lambda d: camera_moves.move_camera_move(
-        d["draft_id"], d["move_id"], float(d["start"]),
-        end=float(d["end"]) if d.get("end") is not None else None,
-        intensity=float(d["intensity"]) if d.get("intensity") is not None else None, focus=d.get("focus")))
+    def run(d):
+        def num(key, kind=float):
+            return kind(d[key]) if d.get(key) is not None else None
+        return camera_moves.move_camera_move(
+            d["draft_id"], d["move_id"], start=num("start"), end=num("end"), intensity=num("intensity"),
+            focus=d.get("focus"), shift=num("shift"), shift_frames=num("shift_frames", int),
+            extend=num("extend"), extend_frames=num("extend_frames", int))
+    return _media_route(run)
 
 
 @app.route('/add_background_music', methods=['POST'])
