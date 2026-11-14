@@ -354,7 +354,7 @@ def _move_existing_clips(base: dict, project_track, curves, mode: str, s_us: int
         if b <= a:
             continue
         kind = clip_edits._kind(seg, mats)
-        reason = clip_edits.clip_verdict(seg, kind, mats, dups) or \
+        reason = clip_edits.clip_verdict(seg, kind, mats, dups, framing_only=True) or \
             (None if kind in ("video", "photo") else f"{kind} clips have no framing to move")
         if reason is None and not isinstance(seg.get("common_keyframes"), list):
             reason = "its keyframes are not in the expected form"

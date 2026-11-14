@@ -79,8 +79,9 @@ e aggiungi un titolo nei primi 3 secondi". `capcut_list_projects` mostra i proge
 `capcut_open_project` lo apre. Le aggiunte vanno su tracce nuove sopra quelle esistenti. Le clip
 che ci sono già cambiano solo se lo chiedi: `capcut_list_clips` dice quali si possono modificare,
 `capcut_edit_clip` le accorcia o le sposta (con `ripple_all` le seguono anche titoli, musica e ciò
-che hai aggiunto dopo il taglio), movimenti di camera e keyframe si applicano anche a loro; nessuna
-viene mai tolta. Al salvataggio il kit riscrive la timeline originale identica, salvo i campi delle
+che hai aggiunto dopo il taglio), movimenti di camera e keyframe si applicano anche a loro (anche a
+una clip col ritocco viso di CapCut, che però non si può accorciare né spostare); nessuna viene mai
+tolta. Al salvataggio il kit riscrive la timeline originale identica, salvo i campi delle
 clip modificate, più le aggiunte, in tutte le copie che CapCut tiene, dopo aver fatto un
 backup dell'intera cartella del progetto in `~/Movies/CapCut MCP Backups`. **Chiudi CapCut prima di
 salvare** (se il kit non riesce a capire se è aperto, non salva); se nel frattempo hai modificato il

@@ -29,6 +29,10 @@ KNOWN_REFS = {"speeds", "placeholder_infos", "canvases", "sound_channel_mappings
               "vocal_separations", "transitions", "material_animations", "loudnesses", "audio_fades"}
 # Materials a text clip may refer to (none of them depends on its length but animations, checked apart)
 KNOWN_TEXT_REFS = {"material_animations", "filters", "effects"}
+# Face/body retouch CapCut attaches to a clip (Retouch panel): it covers the whole clip (no time range of
+# its own) and works on the footage before the clip's framing, so keyframes and camera moves leave it as it
+# is. Trims stay locked: its face-tracking data is computed over the clip's source range.
+RETOUCH_EFFECT_TYPES = {"figure", "makeup_root"}
 TIMED_KINDS = {"video", "photo", "audio", "text"}
 
 
@@ -95,8 +99,9 @@ def _is_int(v) -> bool:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
-def clip_verdict(seg: dict, kind: str, mats: dict, dups: set):
-    """None if the clip can be edited, else why it is locked."""
+def clip_verdict(seg: dict, kind: str, mats: dict, dups: set, framing_only: bool = False):
+    """None if the clip can be edited, else why it is locked. framing_only: the edit only adds keyframes
+    (keyframes, camera moves), so a retouch on the clip does not lock it."""
     if seg.get("id") in dups or not seg.get("id"):
         return "its id is not unique in the project"
     if kind not in TIMED_KINDS:
@@ -112,6 +117,9 @@ def clip_verdict(seg: dict, kind: str, mats: dict, dups: set):
         key, material = mats.get(ref, (None, None))
         if key is None and text:
             continue  # texts made by kit 0.6 and earlier refer to a speed material never written: nothing there
+        if framing_only and not text and key == "effects" and material.get("type") in RETOUCH_EFFECT_TYPES \
+                and material.get("time_range") is None:
+            continue
         if key not in (KNOWN_TEXT_REFS if text else KNOWN_REFS):
             return f"it refers to a material the kit does not know ({key or 'missing'})"
         if key == "speeds":
@@ -208,7 +216,7 @@ def record_edit(base: dict, segment_id: str, fields: dict) -> dict:
     seg = next((s for _, _, s in found if s.get("id") == segment_id), None)
     if seg is None:
         raise sd.SaveDraftError(f"No clip {segment_id} in '{base['name']}': list the clips with capcut_list_clips")
-    reason = clip_verdict(seg, _kind(seg, mats), mats, dups)
+    reason = clip_verdict(seg, _kind(seg, mats), mats, dups, framing_only=set(fields) <= {"common_keyframes"})
     if reason:
         raise sd.SaveDraftError(f"Clip {segment_id} cannot be edited: {reason}")
     edit = {"segment_id": segment_id,
@@ -550,7 +558,7 @@ def add_keyframes(base: dict, project_track, property_types: list, times: list, 
         if seg is None:
             raise ValueError(f"No clip on track {ti} of the project at {at}s")
         if seg["id"] not in clips:
-            reason = clip_verdict(seg, _kind(seg, mats), mats, dups)
+            reason = clip_verdict(seg, _kind(seg, mats), mats, dups, framing_only=True)
             if reason is None and not isinstance(seg.get("common_keyframes"), list):
                 reason = "its keyframes are not in the expected form"
             if reason is None:

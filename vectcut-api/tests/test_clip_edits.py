@@ -550,3 +550,21 @@ def test_keyframes_on_existing_clips_are_all_or_nothing(env, client):
     assert call(client, "/add_video_keyframe", draft_id=d, property_types=["volume"], times=[1], values=["50%"],
                 project_track=1)["success"]
     assert call(client, "/list_clips", draft_id=d)["output"]["edits"] == 1
+
+
+def test_a_retouch_on_a_clip_locks_trims_but_not_keyframes_or_camera_moves():
+    seg = {"id": "c1", "target_timerange": {"start": 0, "duration": 5_000_000},
+           "source_timerange": {"start": 0, "duration": 5_000_000}, "speed": 1.0,
+           "extra_material_refs": ["fx"], "common_keyframes": []}
+
+    def verdicts(material):
+        mats = {"fx": ("effects", material)}
+        return (clip_edits.clip_verdict(seg, "video", mats, set()),
+                clip_edits.clip_verdict(seg, "video", mats, set(), framing_only=True))
+
+    for kind in ("figure", "makeup_root"):
+        trim, framing = verdicts({"type": kind, "time_range": None})
+        assert trim == "it refers to a material the kit does not know (effects)" and framing is None
+    # a timed retouch, or any other effect on the clip, still locks it
+    assert verdicts({"type": "figure", "time_range": {"start": 0, "duration": 1}})[1] is not None
+    assert verdicts({"type": "video_effect", "time_range": None})[1] is not None

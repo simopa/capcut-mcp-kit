@@ -201,6 +201,9 @@ contribution, with a regression test for head, ranges, gaps and tail).
   first, visible when the move starts on a cut); blur_push's blur comes in after a beat.
 - 0.12.0: a move can be nudged instead of placed: shift or shift_frames (earlier if negative), extend or
   extend_frames (longer or shorter at its end), in the draft's own frames.
+- 0.12.1: a clip with CapCut's face retouch on it (Retouch panel: whole-clip "figure"/"makeup_root"
+  effects) takes keyframes and camera moves; trims and moves of it stay locked, since the retouch's
+  face tracking is computed over the clip's source range.
 - Next: check every effect-based move by eye in CapCut, then a sample project with all moves.
 
 Seen in the projects analysed (read-only copies, 10 projects, 379 clips): video/photo/audio clips

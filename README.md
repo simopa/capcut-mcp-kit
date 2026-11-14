@@ -171,7 +171,8 @@ Conventions:
   On an opened project, `capcut_add_camera_move` and `capcut_add_keyframe` also work on the clips
   already there (its main video track, or `project_track` from `capcut_list_clips`): the keyframes the
   move does not touch, and every field the kit does not know, are kept exactly as they were. A clip
-  whose x and y scale are locked together takes only `uniform_scale`; `mode: "refuse"` refuses a
+  whose x and y scale are locked together takes only `uniform_scale`; a clip with CapCut's face
+  retouch on it takes keyframes and moves, but cannot be trimmed or moved; `mode: "refuse"` refuses a
   range the clip is already animated in, also by keyframes outside it. Keyframe values must be finite
   numbers within each property's range, and no timeline is ever written with NaN or Infinity.
 - **Projects synced to CapCut's cloud:** the kit's save does not start an upload by itself; open the
